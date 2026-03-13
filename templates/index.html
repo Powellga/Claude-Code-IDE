@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Claude Code IDE</title>
+
+    <!-- xterm.js from CDN -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.9.0/lib/xterm-addon-web-links.min.js"></script>
+
+    <!-- Socket.IO -->
+    <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.7.4/dist/socket.io.min.js"></script>
+
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <!-- ─── Title Bar ──────────────────────────────────────────── -->
+    <div id="titlebar">
+        <div class="titlebar-left">
+            <span class="logo">⚡</span>
+            <span class="app-title">Claude Code IDE</span>
+        </div>
+        <div class="titlebar-center">
+            <span id="active-project-label">No project selected</span>
+        </div>
+        <div class="titlebar-right">
+            <button id="btn-search" class="titlebar-btn" title="Search sessions (Ctrl+Shift+F)">🔍</button>
+            <button id="btn-settings" class="titlebar-btn" title="Settings">⚙️</button>
+        </div>
+    </div>
+
+    <!-- ─── Main Layout ────────────────────────────────────────── -->
+    <div id="main">
+        <!-- Sidebar -->
+        <div id="sidebar">
+            <div class="sidebar-header">
+                <span>PROJECTS</span>
+                <button id="btn-new-project" class="sidebar-action" title="New Project">+</button>
+            </div>
+            <div id="project-list" class="sidebar-list">
+                <!-- Populated by JS -->
+            </div>
+
+            <div class="sidebar-header" id="sessions-header" style="display:none;">
+                <span>SESSIONS</span>
+            </div>
+            <div id="session-list" class="sidebar-list">
+                <!-- Populated by JS -->
+            </div>
+        </div>
+
+        <!-- Resize handle -->
+        <div id="sidebar-resizer"></div>
+
+        <!-- Content Area -->
+        <div id="content">
+            <!-- Tab bar -->
+            <div id="tab-bar">
+                <div class="tab active" data-tab="terminal">
+                    <span class="tab-icon">▶</span>
+                    <span class="tab-label">Terminal</span>
+                    <span class="tab-status" id="terminal-status">●</span>
+                </div>
+                <div class="tab" data-tab="viewer">
+                    <span class="tab-icon">📄</span>
+                    <span class="tab-label">Session Viewer</span>
+                </div>
+            </div>
+
+            <!-- Terminal Panel -->
+            <div id="terminal-panel" class="panel active">
+                <div id="terminal-toolbar">
+                    <button id="btn-start" class="toolbar-btn primary">▶ Start Claude Code</button>
+                    <button id="btn-stop" class="toolbar-btn danger" style="display:none;">■ Stop & Save</button>
+                    <div class="toolbar-spacer"></div>
+                    <select id="project-select" class="toolbar-select">
+                        <option value="">No project</option>
+                    </select>
+                </div>
+                <div id="terminal-container"></div>
+            </div>
+
+            <!-- Session Viewer Panel -->
+            <div id="viewer-panel" class="panel">
+                <div id="viewer-toolbar">
+                    <span id="viewer-title">Select a session to view</span>
+                    <div class="toolbar-spacer"></div>
+                    <button id="btn-resume" class="toolbar-btn" style="display:none;">▶ Resume This Session</button>
+                </div>
+                <div id="session-content">
+                    <div class="empty-state">
+                        <div class="empty-icon">📂</div>
+                        <p>Select a session from the sidebar to view its conversation history.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ─── Search Modal ───────────────────────────────────────── -->
+    <div id="search-modal" class="modal" style="display:none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span>Search Sessions</span>
+                <button class="modal-close" onclick="closeModal('search-modal')">&times;</button>
+            </div>
+            <input type="text" id="search-input" class="modal-input" placeholder="Search across all sessions...">
+            <div id="search-results" class="modal-body"></div>
+        </div>
+    </div>
+
+    <!-- ─── New Project Modal ──────────────────────────────────── -->
+    <div id="project-modal" class="modal" style="display:none;">
+        <div class="modal-content small">
+            <div class="modal-header">
+                <span>New Project</span>
+                <button class="modal-close" onclick="closeModal('project-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <label>Project Name</label>
+                <input type="text" id="new-project-name" class="modal-input" placeholder="my-project">
+                <label>Description (optional)</label>
+                <input type="text" id="new-project-desc" class="modal-input" placeholder="What's this project about?">
+                <button id="btn-create-project" class="toolbar-btn primary" style="margin-top:12px;width:100%;">Create Project</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ─── Save Session Modal ─────────────────────────────────── -->
+    <div id="save-modal" class="modal" style="display:none;">
+        <div class="modal-content small">
+            <div class="modal-header">
+                <span>Save Session</span>
+                <button class="modal-close" onclick="closeModal('save-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <label>Summary</label>
+                <input type="text" id="save-summary" class="modal-input" placeholder="Brief description of this session...">
+                <label>Tags (comma-separated)</label>
+                <input type="text" id="save-tags" class="modal-input" placeholder="mcp, browser, debugging">
+                <button id="btn-confirm-save" class="toolbar-btn primary" style="margin-top:12px;width:100%;">Save & Close</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

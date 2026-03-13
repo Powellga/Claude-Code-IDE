@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+data/projects/
+local.settings.json
+.env
+.claude/
