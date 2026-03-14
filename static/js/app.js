@@ -1219,6 +1219,7 @@ function onProjectContextMenu(e, projectName) {
 
     showContextMenu(e, [
         { label: isPinned ? "Unpin Project" : "Pin to Top", action: "pin", handler: () => togglePinProject(projectName) },
+        { label: "Set Working Directory", action: "workdir", handler: () => setProjectWorkDir(projectName) },
         { label: "Rename Project", action: "rename", handler: () => renameProject(projectName) },
         "---",
         { label: "Delete Project", action: "delete", danger: true, handler: () => deleteProject(projectName) },
@@ -1280,6 +1281,59 @@ async function quickResume(projectName) {
         });
     } catch (e) {
         console.error("Quick resume failed:", e);
+    }
+}
+
+async function setProjectWorkDir(name) {
+    // Fetch current working directory to show in prompt
+    let currentWd = "";
+    try {
+        const resp = await fetch(`/api/projects/${encodeURIComponent(name)}/workdir`);
+        const data = await resp.json();
+        currentWd = data.working_directory || "";
+    } catch (e) { /* ignore */ }
+
+    const newDir = prompt("Enter working directory path:", currentWd);
+    if (newDir === null) return; // cancelled
+
+    // Check if directory exists
+    if (newDir.trim()) {
+        try {
+            const checkResp = await fetch("/api/check-directory", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ path: newDir.trim() }),
+            });
+            const checkData = await checkResp.json();
+
+            if (!checkData.exists) {
+                if (!confirm(`Directory does not exist:\n${newDir.trim()}\n\nCreate it?`)) return;
+                const createResp = await fetch("/api/create-directory", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ path: newDir.trim() }),
+                });
+                const createData = await createResp.json();
+                if (createData.error) {
+                    alert("Failed to create directory: " + createData.error);
+                    return;
+                }
+            }
+        } catch (e) {
+            console.error("Directory check failed:", e);
+        }
+    }
+
+    try {
+        await fetch(`/api/projects/${encodeURIComponent(name)}/workdir`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ working_directory: newDir.trim() }),
+        });
+        await loadProjects();
+        if (fileTreeVisible) loadFileTree();
+    } catch (e) {
+        console.error("Set working directory failed:", e);
     }
 }
 

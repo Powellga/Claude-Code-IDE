@@ -754,6 +754,33 @@ def api_pin_project(name):
     return jsonify(meta)
 
 
+@app.route("/api/projects/<name>/workdir", methods=["GET"])
+def api_get_workdir(name):
+    """Get the working directory for a project."""
+    meta_path = PROJECTS_DIR / name / "project.json"
+    if not meta_path.exists():
+        return jsonify({"error": "Project not found"}), 404
+    with open(meta_path) as f:
+        meta = json.load(f)
+    return jsonify({"working_directory": meta.get("working_directory", "")})
+
+
+@app.route("/api/projects/<name>/workdir", methods=["PUT"])
+def api_set_workdir(name):
+    """Set the working directory for a project."""
+    data = request.json
+    new_wd = data.get("working_directory", "").strip()
+    meta_path = PROJECTS_DIR / name / "project.json"
+    if not meta_path.exists():
+        return jsonify({"error": "Project not found"}), 404
+    with open(meta_path) as f:
+        meta = json.load(f)
+    meta["working_directory"] = new_wd
+    with open(meta_path, "w") as f:
+        json.dump(meta, f, indent=2)
+    return jsonify(meta)
+
+
 @app.route("/api/projects/<name>/rename", methods=["POST"])
 def api_rename_project(name):
     data = request.json
