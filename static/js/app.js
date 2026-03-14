@@ -356,15 +356,20 @@ function renderProjectList(projects) {
         return;
     }
 
-    list.innerHTML = projects.map(p => `
+    list.innerHTML = projects.map(p => {
+        const created = p.created ? new Date(p.created) : null;
+        const dateStr = created ? created.toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
+
+        return `
         <div class="sidebar-item ${activeProject === p.name ? 'active' : ''}"
              data-project="${escapeAttr(p.name)}"
              title="${escapeAttr((p.description || p.name) + ' — ' + p.session_count + ' session(s). Right-click for options.')}">
             <span class="item-icon">📁</span>
             <span class="item-label">${escapeHtml(p.display_name || p.name)}</span>
+            <span class="item-meta">${dateStr}</span>
             <span class="item-count">${p.session_count}</span>
-        </div>
-    `).join("");
+        </div>`;
+    }).join("");
 
     list.querySelectorAll(".sidebar-item[data-project]").forEach(el => {
         el.addEventListener("click", () => selectProject(el.dataset.project));
@@ -477,7 +482,7 @@ function renderSessionList(sessions, project) {
                  title="${escapeAttr(label + ' — ' + dateStr + ' ' + timeStr + '. Right-click for options.')}">
                 <span class="item-icon">💬</span>
                 <span class="item-label">${escapeHtml(label)}</span>
-                <span class="session-date">${timeStr}</span>
+                <span class="session-date">${dateStr} ${timeStr}</span>
             </div>`;
     }).join("");
 
