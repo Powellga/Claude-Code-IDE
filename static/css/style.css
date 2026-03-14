@@ -322,14 +322,116 @@ html, body {
 
 /* ─── Terminal ─────────────────────────────────────────────────────────── */
 
+#terminal-split {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+}
+
 #terminal-container {
     flex: 1;
     background: var(--bg-primary);
     padding: 4px;
+    min-width: 0;
 }
 
 #terminal-container .xterm {
     height: 100%;
+}
+
+/* ─── File Tree ───────────────────────────────────────────────────────── */
+
+#filetree-panel {
+    width: 220px;
+    background: var(--bg-secondary);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    overflow: hidden;
+}
+
+#filetree-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border);
+}
+
+.filetree-action {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 14px;
+    padding: 0 2px;
+}
+
+.filetree-action:hover {
+    color: var(--text-primary);
+}
+
+#filetree-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 0;
+    font-size: 12px;
+}
+
+.ft-item {
+    display: flex;
+    align-items: center;
+    padding: 2px 8px;
+    cursor: pointer;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.ft-item:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.ft-icon {
+    margin-right: 4px;
+    font-size: 11px;
+    flex-shrink: 0;
+}
+
+.ft-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.ft-size {
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--text-muted);
+    padding-left: 8px;
+    flex-shrink: 0;
+}
+
+.ft-dir-toggle {
+    cursor: pointer;
+    margin-right: 2px;
+    font-size: 10px;
+    flex-shrink: 0;
+    color: var(--text-muted);
+}
+
+.ft-children {
+    display: none;
+}
+
+.ft-children.open {
+    display: block;
 }
 
 /* ─── Session Viewer ───────────────────────────────────────────────────── */

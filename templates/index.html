@@ -94,8 +94,18 @@
                     <button id="btn-start" class="toolbar-btn primary" title="Launch a new Claude Code session">▶ Start Claude Code</button>
                     <button id="btn-stop" class="toolbar-btn danger" style="display:none;" title="Stop the running session and save the transcript">■ Stop & Save</button>
                     <div class="toolbar-spacer"></div>
+                    <button id="btn-toggle-filetree" class="toolbar-btn" title="Toggle file tree panel">🗂️ Files</button>
                 </div>
-                <div id="terminal-container"></div>
+                <div id="terminal-split">
+                    <div id="filetree-panel" style="display:none;">
+                        <div id="filetree-header">
+                            <span>FILES</span>
+                            <button id="btn-refresh-filetree" class="filetree-action" title="Refresh file tree">↻</button>
+                        </div>
+                        <div id="filetree-content"></div>
+                    </div>
+                    <div id="terminal-container"></div>
+                </div>
             </div>
 
             <!-- Session Viewer Panel -->

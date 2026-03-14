@@ -244,6 +244,10 @@ function initUI() {
     });
     document.getElementById("btn-confirm-import").addEventListener("click", importConversation);
 
+    // File tree
+    document.getElementById("btn-toggle-filetree").addEventListener("click", toggleFileTree);
+    document.getElementById("btn-refresh-filetree").addEventListener("click", loadFileTree);
+
     // Export buttons
     document.getElementById("btn-export-md").addEventListener("click", () => exportSession("md"));
     document.getElementById("btn-export-txt").addEventListener("click", () => exportSession("txt"));
@@ -415,6 +419,9 @@ async function selectProject(name) {
     // Show sessions header and load sessions
     document.getElementById("sessions-header").style.display = "flex";
     await loadSessions(name);
+
+    // Refresh file tree if visible
+    if (fileTreeVisible) loadFileTree();
 }
 
 async function createProject() {
@@ -900,6 +907,119 @@ async function takeScreenshot() {
         btn.textContent = origText;
         btn.disabled = false;
     }
+}
+
+
+// ─── File Tree ──────────────────────────────────────────────────────────
+
+let fileTreeVisible = false;
+
+function toggleFileTree() {
+    const panel = document.getElementById("filetree-panel");
+    fileTreeVisible = !fileTreeVisible;
+    panel.style.display = fileTreeVisible ? "" : "none";
+    if (fileTreeVisible && activeProject) {
+        loadFileTree();
+    }
+    // Refit terminal after layout change
+    setTimeout(() => { if (fitAddon) fitAddon.fit(); }, 50);
+}
+
+async function loadFileTree() {
+    if (!activeProject) {
+        document.getElementById("filetree-content").innerHTML =
+            '<div style="padding:10px;color:var(--text-muted);font-size:11px;">No project selected</div>';
+        return;
+    }
+
+    try {
+        const resp = await fetch(`/api/projects/${encodeURIComponent(activeProject)}/files`);
+        const data = await resp.json();
+
+        if (data.error) {
+            document.getElementById("filetree-content").innerHTML =
+                `<div style="padding:10px;color:var(--text-muted);font-size:11px;">${escapeHtml(data.error)}</div>`;
+            return;
+        }
+
+        document.getElementById("filetree-content").innerHTML = renderFileTree(data.tree, 0);
+
+        // Add click handlers for directories
+        document.getElementById("filetree-content").querySelectorAll(".ft-dir-toggle").forEach(toggle => {
+            toggle.addEventListener("click", (e) => {
+                e.stopPropagation();
+                const children = toggle.closest(".ft-item").nextElementSibling;
+                if (children && children.classList.contains("ft-children")) {
+                    children.classList.toggle("open");
+                    toggle.textContent = children.classList.contains("open") ? "▾" : "▸";
+                }
+            });
+        });
+
+        // Click on file to tell Claude to read it
+        document.getElementById("filetree-content").querySelectorAll(".ft-item[data-filepath]").forEach(item => {
+            item.addEventListener("click", () => {
+                const filepath = item.dataset.filepath;
+                if (isTerminalRunning && socket) {
+                    const prompt = `Read the file: ${filepath}\n`;
+                    socket.emit("terminal_input", { data: prompt });
+                    terminal.focus();
+                }
+            });
+        });
+    } catch (e) {
+        console.error("Failed to load file tree:", e);
+    }
+}
+
+function renderFileTree(entries, depth) {
+    if (!entries || entries.length === 0) return '';
+
+    return entries.map(entry => {
+        const indent = depth * 16;
+        const icon = entry.is_dir ? "📁" : getFileIcon(entry.name);
+
+        if (entry.is_dir) {
+            return `
+                <div class="ft-item" style="padding-left:${8 + indent}px">
+                    <span class="ft-dir-toggle">▸</span>
+                    <span class="ft-icon">${icon}</span>
+                    <span class="ft-name">${escapeHtml(entry.name)}</span>
+                </div>
+                <div class="ft-children">${renderFileTree(entry.children, depth + 1)}</div>`;
+        } else {
+            const sizeStr = formatFileSize(entry.size || 0);
+            return `
+                <div class="ft-item" style="padding-left:${8 + indent + 14}px" data-filepath="${escapeAttr(entry.path)}" title="Click to ask Claude to read this file">
+                    <span class="ft-icon">${icon}</span>
+                    <span class="ft-name">${escapeHtml(entry.name)}</span>
+                    <span class="ft-size">${sizeStr}</span>
+                </div>`;
+        }
+    }).join('');
+}
+
+function getFileIcon(name) {
+    const ext = name.split('.').pop().toLowerCase();
+    const icons = {
+        py: '🐍', js: '📜', ts: '📜', jsx: '📜', tsx: '📜',
+        json: '{}', md: '📝', txt: '📄', csv: '📊',
+        html: '🌐', css: '🎨', svg: '🖼️',
+        png: '🖼️', jpg: '🖼️', jpeg: '🖼️', gif: '🖼️', ico: '🖼️',
+        xlsx: '📊', xls: '📊', docx: '📃', pptx: '📊',
+        pdf: '📕', zip: '📦', gz: '📦', tar: '📦',
+        yml: '⚙️', yaml: '⚙️', toml: '⚙️', ini: '⚙️', cfg: '⚙️',
+        sh: '⚡', bat: '⚡', ps1: '⚡',
+        git: '🔀', gitignore: '🔀',
+    };
+    return icons[ext] || '📄';
+}
+
+function formatFileSize(bytes) {
+    if (bytes === 0) return '';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
 

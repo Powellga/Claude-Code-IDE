@@ -563,6 +563,65 @@ def api_screenshot():
     return jsonify({"error": "Screenshot timed out — no image detected in clipboard"}), 408
 
 
+@app.route("/api/projects/<name>/files", methods=["GET"])
+def api_list_files(name):
+    """List files in the project's working directory as a tree."""
+    wd = _get_project_working_dir(name)
+    if not os.path.isdir(wd):
+        return jsonify({"error": "Working directory not found", "path": wd}), 404
+
+    max_depth = int(request.args.get("depth", 3))
+    max_files = int(request.args.get("limit", 500))
+    count = 0
+
+    # Directories to skip
+    skip_dirs = {'.git', 'node_modules', '__pycache__', '.venv', 'venv', '.next',
+                 '.cache', 'dist', 'build', '.tox', '.mypy_cache', '.pytest_cache',
+                 'env', '.env', '.idea', '.vs', '.vscode'}
+
+    def scan_dir(path, depth):
+        nonlocal count
+        if depth > max_depth or count > max_files:
+            return []
+
+        entries = []
+        try:
+            items = sorted(os.listdir(path), key=lambda x: (not os.path.isdir(os.path.join(path, x)), x.lower()))
+        except PermissionError:
+            return []
+
+        for item in items:
+            if count > max_files:
+                break
+            full = os.path.join(path, item)
+            is_dir = os.path.isdir(full)
+
+            if is_dir and item in skip_dirs:
+                continue
+
+            count += 1
+            entry = {
+                "name": item,
+                "path": full,
+                "is_dir": is_dir,
+            }
+
+            if is_dir:
+                entry["children"] = scan_dir(full, depth + 1)
+            else:
+                try:
+                    entry["size"] = os.path.getsize(full)
+                except OSError:
+                    entry["size"] = 0
+
+            entries.append(entry)
+
+        return entries
+
+    tree = scan_dir(wd, 0)
+    return jsonify({"path": wd, "tree": tree})
+
+
 @app.route("/api/check-directory", methods=["POST"])
 def api_check_directory():
     data = request.json
