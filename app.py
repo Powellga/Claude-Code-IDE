@@ -471,6 +471,42 @@ def api_upload_file():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/import-conversation", methods=["POST"])
+def api_import_conversation():
+    """Save pasted conversation text as a file in the project working directory."""
+    data = request.json
+    text = data.get("text", "").strip()
+    if not text:
+        return jsonify({"error": "No text provided"}), 400
+
+    project = data.get("project", "")
+    label = data.get("label", "").strip()
+
+    if project:
+        dest_dir = _get_project_working_dir(project)
+    else:
+        dest_dir = str(Path.home())
+
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    filename = f"imported_conversation_{timestamp}.txt"
+    filepath = os.path.join(dest_dir, filename)
+
+    # Write with optional label header
+    with open(filepath, "w", encoding="utf-8") as f:
+        if label:
+            f.write(f"Source: {label}\n")
+            f.write(f"Imported: {datetime.now().isoformat()}\n")
+            f.write("=" * 60 + "\n\n")
+        f.write(text)
+
+    return jsonify({
+        "status": "success",
+        "filename": filename,
+        "path": filepath,
+        "size": os.path.getsize(filepath),
+    })
+
+
 @app.route("/api/screenshot", methods=["POST"])
 def api_screenshot():
     """Launch Windows Snipping Tool, wait for capture, save to project directory."""

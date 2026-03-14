@@ -35,6 +35,7 @@
         <div class="titlebar-right">
             <button id="btn-upload" class="titlebar-btn" title="Upload a file to the project directory for Claude to read">📎</button>
             <button id="btn-screenshot" class="titlebar-btn" title="Capture a screenshot for Claude to analyze">✂️</button>
+            <button id="btn-import" class="titlebar-btn" title="Paste text from another conversation for Claude to continue from">📋</button>
             <button id="btn-search" class="titlebar-btn" title="Search sessions (Ctrl+Shift+F)">🔍</button>
             <button id="btn-settings" class="titlebar-btn" title="Settings">⚙️</button>
         </div>
@@ -221,6 +222,23 @@
                 <label>Terminal Font Size</label>
                 <input type="number" id="settings-font-size" class="modal-input" min="10" max="24" value="14" title="Font size for the terminal (10–24)">
                 <button id="btn-save-settings" class="toolbar-btn primary" style="margin-top:12px;width:100%;" title="Save settings to server">Save Settings</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ─── Import Conversation Modal ─────────────────────────── -->
+    <div id="import-modal" class="modal" style="display:none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span>Import Conversation</span>
+                <button class="modal-close" onclick="closeModal('import-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <label>Paste conversation text below</label>
+                <textarea id="import-text" style="width:100%;height:300px;background:var(--bg-primary);color:var(--text-primary);border:1px solid var(--border);border-radius:6px;padding:10px;font-family:Consolas,monospace;font-size:13px;resize:vertical;" placeholder="Paste a conversation from claude.ai, ChatGPT, email, Slack, or any other source..."></textarea>
+                <label style="margin-top:10px;">Label (optional)</label>
+                <input type="text" id="import-label" class="modal-input" placeholder="e.g. 'Claude.ai chat about VPN migration'">
+                <button id="btn-confirm-import" class="toolbar-btn primary" style="margin-top:12px;width:100%;">Import & Send to Claude</button>
             </div>
         </div>
     </div>

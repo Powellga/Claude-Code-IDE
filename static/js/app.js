@@ -231,6 +231,19 @@ function initUI() {
     // Screenshot
     document.getElementById("btn-screenshot").addEventListener("click", takeScreenshot);
 
+    // Import conversation
+    document.getElementById("btn-import").addEventListener("click", () => {
+        if (!activeProject) {
+            alert("Select a project first.");
+            return;
+        }
+        document.getElementById("import-text").value = "";
+        document.getElementById("import-label").value = "";
+        document.getElementById("import-modal").style.display = "flex";
+        document.getElementById("import-text").focus();
+    });
+    document.getElementById("btn-confirm-import").addEventListener("click", importConversation);
+
     // Export buttons
     document.getElementById("btn-export-md").addEventListener("click", () => exportSession("md"));
     document.getElementById("btn-export-txt").addEventListener("click", () => exportSession("txt"));
@@ -876,6 +889,47 @@ async function takeScreenshot() {
     } finally {
         btn.textContent = origText;
         btn.disabled = false;
+    }
+}
+
+
+// ─── Import Conversation ────────────────────────────────────────────────
+
+async function importConversation() {
+    const text = document.getElementById("import-text").value.trim();
+    if (!text) {
+        alert("Paste some text first.");
+        return;
+    }
+
+    const label = document.getElementById("import-label").value.trim();
+
+    try {
+        const resp = await fetch("/api/import-conversation", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ project: activeProject, text, label }),
+        });
+        const data = await resp.json();
+
+        if (data.error) {
+            alert("Import failed: " + data.error);
+            return;
+        }
+
+        closeModal("import-modal");
+
+        // If terminal is running, tell Claude to read the imported conversation
+        if (isTerminalRunning && socket) {
+            const prompt = `I've imported a previous conversation for context. Read this file and continue from where it left off: ${data.path}\n`;
+            socket.emit("terminal_input", { data: prompt });
+            terminal.focus();
+        } else {
+            alert(`Conversation saved to:\n${data.path}\n\nStart a Claude Code session to have Claude pick up from it.`);
+        }
+    } catch (e) {
+        console.error("Import failed:", e);
+        alert("Import failed. Check console for details.");
     }
 }
 
