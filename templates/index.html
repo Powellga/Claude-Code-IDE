@@ -86,6 +86,10 @@
                     <span class="tab-icon">📝</span>
                     <span class="tab-label">CLAUDE.md</span>
                 </div>
+                <div class="tab" data-tab="gitdiff" title="View git status and diffs for the project">
+                    <span class="tab-icon">🔀</span>
+                    <span class="tab-label">Git</span>
+                </div>
             </div>
 
             <!-- Terminal Panel -->
@@ -158,6 +162,19 @@
                 </div>
                 <div id="claudemd-editor-container">
                     <textarea id="claudemd-editor" spellcheck="false" placeholder="No CLAUDE.md found. Start typing to create one..."></textarea>
+                </div>
+            </div>
+
+            <!-- Git Diff Panel -->
+            <div id="gitdiff-panel" class="panel">
+                <div id="gitdiff-toolbar">
+                    <span id="gitdiff-status-label" style="font-size:12px;color:var(--text-secondary);">Select a project with a git repo</span>
+                    <div class="toolbar-spacer"></div>
+                    <button id="btn-gitdiff-refresh" class="toolbar-btn" title="Refresh git status">↻ Refresh</button>
+                </div>
+                <div id="gitdiff-content">
+                    <div id="gitdiff-files" style="border-bottom:1px solid var(--border);max-height:180px;overflow-y:auto;"></div>
+                    <div id="gitdiff-diff" style="flex:1;overflow:auto;padding:8px;font-family:Consolas,monospace;font-size:12px;white-space:pre-wrap;color:var(--text-secondary);"></div>
                 </div>
             </div>
         </div>

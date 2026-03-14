@@ -622,6 +622,70 @@ def api_list_files(name):
     return jsonify({"path": wd, "tree": tree})
 
 
+@app.route("/api/projects/<name>/git-status", methods=["GET"])
+def api_git_status(name):
+    """Get git status and diff for the project's working directory."""
+    import subprocess
+
+    wd = _get_project_working_dir(name)
+    if not os.path.isdir(wd):
+        return jsonify({"error": "Working directory not found"}), 404
+
+    # Check if it's a git repo
+    try:
+        subprocess.run(["git", "rev-parse", "--git-dir"], cwd=wd,
+                       capture_output=True, check=True, timeout=5)
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+        return jsonify({"error": "Not a git repository", "is_git": False})
+
+    result = {"is_git": True, "files": [], "diff": "", "branch": ""}
+
+    # Get current branch
+    try:
+        branch = subprocess.run(["git", "branch", "--show-current"], cwd=wd,
+                                capture_output=True, text=True, timeout=5)
+        result["branch"] = branch.stdout.strip()
+    except Exception:
+        pass
+
+    # Get status (porcelain for easy parsing)
+    try:
+        status = subprocess.run(["git", "status", "--porcelain"], cwd=wd,
+                                capture_output=True, text=True, timeout=10)
+        for line in status.stdout.strip().split("\n"):
+            if not line.strip():
+                continue
+            code = line[:2]
+            filepath = line[3:]
+            result["files"].append({"status": code.strip(), "path": filepath})
+    except Exception:
+        pass
+
+    # Get diff (staged + unstaged)
+    try:
+        diff = subprocess.run(["git", "diff", "HEAD"], cwd=wd,
+                              capture_output=True, text=True, timeout=15)
+        result["diff"] = diff.stdout[:100000]  # Cap at 100KB
+    except Exception:
+        # Might fail if no commits yet, try just unstaged
+        try:
+            diff = subprocess.run(["git", "diff"], cwd=wd,
+                                  capture_output=True, text=True, timeout=15)
+            result["diff"] = diff.stdout[:100000]
+        except Exception:
+            pass
+
+    # Get recent log (last 5 commits)
+    try:
+        log = subprocess.run(["git", "log", "--oneline", "-5"], cwd=wd,
+                             capture_output=True, text=True, timeout=5)
+        result["log"] = log.stdout.strip().split("\n") if log.stdout.strip() else []
+    except Exception:
+        result["log"] = []
+
+    return jsonify(result)
+
+
 @app.route("/api/check-directory", methods=["POST"])
 def api_check_directory():
     data = request.json

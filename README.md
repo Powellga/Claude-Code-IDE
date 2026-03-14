@@ -17,6 +17,10 @@ This is not a thin wrapper or a chat UI that calls an API. It manages real PTY p
 - **File Upload** — Upload files (Excel, Word, images, etc.) to the project directory for Claude to read via MCP tools
 - **Screenshot Capture** — One-click Windows Snipping Tool integration: capture a screen region and Claude analyzes it automatically
 - **Conversation Import** — Paste text from claude.ai, ChatGPT, email, or any source into a modal; saved as a file and Claude picks up where it left off
+- **Quick-Resume** — Hover any project to one-click resume the most recent session
+- **Pin Projects** — Right-click to pin frequently used projects to the top of the sidebar
+- **File Tree** — Toggle a file explorer panel alongside the terminal showing the project's working directory; click any file to ask Claude to read it
+- **Git Integration** — Dedicated Git tab showing branch, changed files, recent commits, and full color-highlighted diffs
 - **Timestamps** — Projects and sessions display their creation date and time in the sidebar
 - **Search** — Full-text search across all saved sessions (Ctrl+Shift+F)
 - **Settings** — Configurable Claude Code command, default project, and terminal font size
@@ -105,6 +109,7 @@ Then open **http://localhost:5000** in your browser.
 | **Session Viewer** | Read saved transcripts, export as .md/.txt, or resume |
 | **Compare** | Side-by-side diff of two sessions from the same project |
 | **CLAUDE.md** | Edit project instructions file (Ctrl+S to save) |
+| **Git** | Branch info, changed files, recent commits, and color-highlighted diffs |
 
 ## Architecture
 
@@ -189,6 +194,7 @@ claude-code-ide/
 - [x] Phase 5: Session diffing, export, and CLAUDE.md editor
 - [x] Phase 6: Settings, file upload, context menus, tooltips, working directory persistence
 - [x] Phase 7: Screenshot capture, conversation import, sidebar timestamps, favicon/branding, launcher script
+- [x] Phase 8: Quick-resume, pin projects, file tree viewer, git diff integration
 
 ## How Is This Different from Claude Desktop?
 
@@ -209,6 +215,8 @@ Claude Desktop is Anthropic's official desktop app. It's a conversation tool —
 | File upload for analysis | Built-in | Upload button drops files in project directory, auto-prompts Claude |
 | Screenshot capture | No — paste image manually | One-click: launches Snipping Tool, saves to project, auto-prompts Claude |
 | Import conversations | No cross-platform import | Paste from claude.ai, ChatGPT, email — Claude picks up where it left off |
+| Git integration | No | Branch, status, diffs, recent commits — see what Claude changed |
+| File explorer | No | Toggleable file tree alongside the terminal |
 | Code transparency | Closed source | You own every line — fully inspectable and modifiable |
 
 **Claude Desktop is more powerful for single conversations** — polished UI, faster responses, native file handling.

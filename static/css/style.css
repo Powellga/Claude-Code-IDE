@@ -571,6 +571,68 @@ html, body {
     max-height: 3em;
 }
 
+/* ─── Git Diff Panel ──────────────────────────────────────────────────── */
+
+#gitdiff-toolbar {
+    height: var(--toolbar-height);
+    background: var(--bg-toolbar);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    gap: 8px;
+}
+
+#gitdiff-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.git-file-item {
+    display: flex;
+    align-items: center;
+    padding: 4px 12px;
+    font-size: 12px;
+    font-family: Consolas, monospace;
+    cursor: pointer;
+    color: var(--text-secondary);
+}
+
+.git-file-item:hover {
+    background: var(--bg-hover);
+}
+
+.git-status {
+    width: 24px;
+    font-weight: bold;
+    flex-shrink: 0;
+}
+
+.git-status-M { color: #dcdcaa; }
+.git-status-A { color: #4ec9b0; }
+.git-status-D { color: #f44747; }
+.git-status-R { color: #569cd6; }
+.git-status-U, .git-status-\? { color: #6a6a6a; }
+
+.diff-line-add { color: #4ec9b0; }
+.diff-line-del { color: #f44747; }
+.diff-line-hunk { color: #569cd6; font-weight: bold; }
+.diff-line-header { color: #dcdcaa; }
+
+.git-log-item {
+    padding: 3px 12px;
+    font-size: 11px;
+    font-family: Consolas, monospace;
+    color: var(--text-muted);
+}
+
+.git-log-hash {
+    color: #dcdcaa;
+    margin-right: 8px;
+}
+
 /* ─── Compare / Diff Panel ─────────────────────────────────────────────── */
 
 #diff-toolbar {

@@ -248,6 +248,9 @@ function initUI() {
     document.getElementById("btn-toggle-filetree").addEventListener("click", toggleFileTree);
     document.getElementById("btn-refresh-filetree").addEventListener("click", loadFileTree);
 
+    // Git diff
+    document.getElementById("btn-gitdiff-refresh").addEventListener("click", loadGitStatus);
+
     // Export buttons
     document.getElementById("btn-export-md").addEventListener("click", () => exportSession("md"));
     document.getElementById("btn-export-txt").addEventListener("click", () => exportSession("txt"));
@@ -286,6 +289,9 @@ function initUI() {
             }
             if (tab.dataset.tab === "claudemd") {
                 loadClaudeMd();
+            }
+            if (tab.dataset.tab === "gitdiff") {
+                loadGitStatus();
             }
         });
     });
@@ -907,6 +913,92 @@ async function takeScreenshot() {
         btn.textContent = origText;
         btn.disabled = false;
     }
+}
+
+
+// ─── Git Diff ───────────────────────────────────────────────────────────
+
+async function loadGitStatus() {
+    if (!activeProject) {
+        document.getElementById("gitdiff-status-label").textContent = "Select a project first";
+        document.getElementById("gitdiff-files").innerHTML = "";
+        document.getElementById("gitdiff-diff").textContent = "";
+        return;
+    }
+
+    document.getElementById("gitdiff-status-label").textContent = "Loading...";
+
+    try {
+        const resp = await fetch(`/api/projects/${encodeURIComponent(activeProject)}/git-status`);
+        const data = await resp.json();
+
+        if (data.error) {
+            document.getElementById("gitdiff-status-label").textContent = data.error;
+            document.getElementById("gitdiff-files").innerHTML = "";
+            document.getElementById("gitdiff-diff").textContent = "";
+            return;
+        }
+
+        // Status label
+        const changeCount = data.files.length;
+        document.getElementById("gitdiff-status-label").textContent =
+            `Branch: ${data.branch || '(none)'} — ${changeCount} changed file${changeCount !== 1 ? 's' : ''}`;
+
+        // File list
+        const filesDiv = document.getElementById("gitdiff-files");
+        if (data.files.length === 0 && data.log.length === 0) {
+            filesDiv.innerHTML = '<div style="padding:10px;color:var(--text-muted);font-size:12px;">Working tree clean</div>';
+        } else {
+            let html = '';
+
+            // Changed files
+            if (data.files.length > 0) {
+                html += data.files.map(f => {
+                    const statusClass = `git-status-${f.status.replace('?', '\\?')}`;
+                    return `<div class="git-file-item" data-gitfile="${escapeAttr(f.path)}" title="${escapeAttr(f.path)}">
+                        <span class="git-status ${statusClass}">${escapeHtml(f.status)}</span>
+                        <span>${escapeHtml(f.path)}</span>
+                    </div>`;
+                }).join('');
+            }
+
+            // Recent commits
+            if (data.log && data.log.length > 0) {
+                html += '<div style="padding:6px 12px 2px;font-size:10px;color:var(--text-muted);letter-spacing:0.5px;border-top:1px solid var(--border);">RECENT COMMITS</div>';
+                html += data.log.map(line => {
+                    const spaceIdx = line.indexOf(' ');
+                    const hash = spaceIdx > 0 ? line.substring(0, spaceIdx) : line;
+                    const msg = spaceIdx > 0 ? line.substring(spaceIdx + 1) : '';
+                    return `<div class="git-log-item"><span class="git-log-hash">${escapeHtml(hash)}</span>${escapeHtml(msg)}</div>`;
+                }).join('');
+            }
+
+            filesDiv.innerHTML = html;
+        }
+
+        // Diff content with syntax highlighting
+        const diffDiv = document.getElementById("gitdiff-diff");
+        if (data.diff) {
+            diffDiv.innerHTML = renderGitDiff(data.diff);
+        } else {
+            diffDiv.textContent = "No uncommitted changes";
+        }
+    } catch (e) {
+        console.error("Failed to load git status:", e);
+        document.getElementById("gitdiff-status-label").textContent = "Failed to load git status";
+    }
+}
+
+function renderGitDiff(diffText) {
+    return diffText.split('\n').map(line => {
+        let cls = '';
+        if (line.startsWith('+') && !line.startsWith('+++')) cls = 'diff-line-add';
+        else if (line.startsWith('-') && !line.startsWith('---')) cls = 'diff-line-del';
+        else if (line.startsWith('@@')) cls = 'diff-line-hunk';
+        else if (line.startsWith('diff ') || line.startsWith('index ') || line.startsWith('---') || line.startsWith('+++')) cls = 'diff-line-header';
+
+        return `<div class="${cls}">${escapeHtml(line)}</div>`;
+    }).join('');
 }
 
 
