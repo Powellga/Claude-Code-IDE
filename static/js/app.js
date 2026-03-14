@@ -936,7 +936,12 @@ async function loadGitStatus() {
             document.getElementById("gitdiff-status-label").textContent = data.error;
             document.getElementById("gitdiff-diff").textContent = "";
 
-            if (data.is_git === false) {
+            if (data.no_workdir) {
+                document.getElementById("gitdiff-files").innerHTML = `
+                    <div style="padding:16px;text-align:center;">
+                        <p style="color:var(--text-muted);font-size:12px;">No working directory set for this project.<br>Right-click the project to set one.</p>
+                    </div>`;
+            } else if (data.is_git === false) {
                 document.getElementById("gitdiff-files").innerHTML = `
                     <div style="padding:16px;text-align:center;">
                         <p style="color:var(--text-muted);font-size:12px;margin-bottom:10px;">This project directory is not a git repository.</p>

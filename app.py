@@ -633,7 +633,7 @@ def api_git_status(name):
 
     # Don't scan home directory — it's never the intended project root
     if os.path.normpath(wd) == os.path.normpath(str(Path.home())):
-        return jsonify({"error": "No working directory set for this project. Edit the project to set one.", "is_git": False})
+        return jsonify({"error": "No working directory set for this project. Edit the project to set one.", "is_git": False, "no_workdir": True})
 
     # Check if it's a git repo
     try:
@@ -698,6 +698,9 @@ def api_git_init(name):
     wd = _get_project_working_dir(name)
     if not os.path.isdir(wd):
         return jsonify({"error": "Working directory not found"}), 404
+
+    if os.path.normpath(wd) == os.path.normpath(str(Path.home())):
+        return jsonify({"error": "Cannot initialize git in home directory. Set a working directory first."}), 400
 
     try:
         subprocess.run(["git", "init"], cwd=wd, capture_output=True, check=True, timeout=10)
