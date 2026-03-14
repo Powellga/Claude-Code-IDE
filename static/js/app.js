@@ -1229,6 +1229,7 @@ function onProjectContextMenu(e, projectName) {
 function onSessionContextMenu(e, project, sessionId) {
     showContextMenu(e, [
         { label: "Rename Session", action: "rename", handler: () => renameSession(project, sessionId) },
+        { label: "Move to Project...", action: "move", handler: () => moveSession(project, sessionId) },
         "---",
         { label: "Delete Session", action: "delete", danger: true, handler: () => deleteSession(project, sessionId) },
     ]);
@@ -1383,6 +1384,47 @@ async function renameSession(project, sessionId) {
         await loadSessions(project);
     } catch (e) {
         console.error("Rename failed:", e);
+    }
+}
+
+async function moveSession(fromProject, sessionId) {
+    try {
+        const resp = await fetch("/api/projects");
+        const projects = await resp.json();
+        const otherProjects = projects.filter(p => p.name !== fromProject);
+
+        if (otherProjects.length === 0) {
+            alert("No other projects to move to. Create one first.");
+            return;
+        }
+
+        const choices = otherProjects.map((p, i) => `${i + 1}. ${p.display_name || p.name}`).join("\n");
+        const pick = prompt(`Move session to which project?\n\n${choices}\n\nEnter number:`);
+        if (!pick) return;
+
+        const idx = parseInt(pick) - 1;
+        if (isNaN(idx) || idx < 0 || idx >= otherProjects.length) {
+            alert("Invalid selection.");
+            return;
+        }
+
+        const toProject = otherProjects[idx].name;
+        const moveResp = await fetch(`/api/projects/${encodeURIComponent(fromProject)}/sessions/${encodeURIComponent(sessionId)}/move`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ to_project: toProject }),
+        });
+        const moveData = await moveResp.json();
+
+        if (moveData.error) {
+            alert("Move failed: " + moveData.error);
+            return;
+        }
+
+        await loadSessions(fromProject);
+        await loadProjects();
+    } catch (e) {
+        console.error("Move session failed:", e);
     }
 }
 

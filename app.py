@@ -861,6 +861,37 @@ def api_rename_session(project, session_id):
     return jsonify(session)
 
 
+@app.route("/api/projects/<project>/sessions/<session_id>/move", methods=["POST"])
+def api_move_session(project, session_id):
+    """Move a session from one project to another."""
+    import shutil
+    data = request.json
+    to_project = data.get("to_project", "").strip()
+    if not to_project:
+        return jsonify({"error": "Target project required"}), 400
+
+    src = PROJECTS_DIR / project / "sessions" / f"{session_id}.json"
+    if not src.exists():
+        return jsonify({"error": "Session not found"}), 404
+
+    dest_dir = PROJECTS_DIR / to_project / "sessions"
+    if not dest_dir.parent.exists():
+        return jsonify({"error": "Target project not found"}), 404
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    dest = dest_dir / f"{session_id}.json"
+    shutil.move(str(src), str(dest))
+
+    # Update the project field inside the session JSON
+    with open(dest, "r", encoding="utf-8") as f:
+        session_data = json.load(f)
+    session_data["project"] = to_project
+    with open(dest, "w", encoding="utf-8") as f:
+        json.dump(session_data, f, indent=2, ensure_ascii=False)
+
+    return jsonify({"status": "moved", "from": project, "to": to_project})
+
+
 @app.route("/api/sessions/save", methods=["POST"])
 def api_save_current_session():
     """Manually trigger saving the current terminal session."""
