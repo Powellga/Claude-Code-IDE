@@ -298,6 +298,14 @@ function initUI() {
 
     // New project
     document.getElementById("btn-new-project").addEventListener("click", () => openModal("project-modal"));
+    document.getElementById("btn-new-session").addEventListener("click", () => {
+        // Switch to terminal tab and start
+        document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+        document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
+        document.querySelector('[data-tab="terminal"]').classList.add("active");
+        document.getElementById("terminal-panel").classList.add("active");
+        startTerminal();
+    });
     document.getElementById("btn-create-project").addEventListener("click", createProject);
 
     // Search
