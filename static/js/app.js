@@ -944,7 +944,7 @@ async function loadGitStatus() {
                     </div>`;
                 document.getElementById("btn-git-init").addEventListener("click", async () => {
                     try {
-                        const initResp = await fetch(\`/api/projects/\${encodeURIComponent(activeProject)}/git-init\`, { method: "POST" });
+                        const initResp = await fetch("/api/projects/" + encodeURIComponent(activeProject) + "/git-init", { method: "POST" });
                         const initData = await initResp.json();
                         if (initData.error) {
                             alert("Failed: " + initData.error);
