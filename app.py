@@ -12,13 +12,14 @@ Usage:
 
 import json
 import os
+import re
 import sys
 import time
 import uuid
 from datetime import datetime
 from pathlib import Path
 
-from flask import Flask, render_template, request, jsonify, send_from_directory
+from flask import Flask, render_template, request, jsonify, send_from_directory, Response
 from flask_socketio import SocketIO, emit
 
 # ─── Configuration ──────────────────────────────────────────────────────────
@@ -48,7 +49,7 @@ active_terminals = {}
 
 # ─── Terminal Management ────────────────────────────────────────────────────
 
-def _spawn_terminal(sid, project_path=None, resume_cmd=None):
+def _spawn_terminal(sid, project_path=None, cmd=None, claude_session_id=None):
     """
     Spawn a Claude Code process in a PTY and wire it to the WebSocket.
 
@@ -58,7 +59,7 @@ def _spawn_terminal(sid, project_path=None, resume_cmd=None):
     import threading
 
     cwd = project_path or str(Path.home())
-    cmd = resume_cmd or CLAUDE_CMD
+    cmd = cmd or CLAUDE_CMD
 
     # Session recording buffer
     session_record = {
@@ -66,6 +67,7 @@ def _spawn_terminal(sid, project_path=None, resume_cmd=None):
         "created": datetime.now().isoformat(),
         "working_directory": cwd,
         "project": None,
+        "claude_session_id": claude_session_id,
         "raw_output": [],
         "raw_input": [],
     }
@@ -246,6 +248,7 @@ def save_session(record, project_name=None):
     save_data = {
         "id": record["id"],
         "project": project_name,
+        "claude_session_id": record.get("claude_session_id", ""),
         "created": record["created"],
         "ended": record.get("ended", datetime.now().isoformat()),
         "working_directory": record.get("working_directory", ""),
@@ -258,6 +261,36 @@ def save_session(record, project_name=None):
         json.dump(save_data, f, indent=2, ensure_ascii=False)
 
     return str(filepath)
+
+
+def _clean_transcript(raw_text):
+    """Render raw PTY output through a virtual terminal to get readable text."""
+    import pyte
+
+    screen = pyte.HistoryScreen(120, 50, history=100000)
+    stream = pyte.Stream(screen)
+    stream.feed(raw_text)
+
+    # Collect scrollback history + current screen
+    lines = []
+    for hist_line in screen.history.top:
+        chars = ''
+        for col in range(120):
+            if col in hist_line:
+                chars += hist_line[col].data
+            else:
+                chars += ' '
+        lines.append(chars.rstrip())
+
+    for row in screen.display:
+        lines.append(row.rstrip())
+
+    text = '\n'.join(lines)
+
+    # Collapse excessive blank lines
+    text = re.compile(r'\n{4,}').sub('\n\n\n', text)
+
+    return text.strip()
 
 
 def load_session(project_name, session_id):
@@ -316,7 +349,7 @@ def list_projects():
     return projects
 
 
-def create_project(name, display_name=None, description=""):
+def create_project(name, display_name=None, description="", working_directory=""):
     """Create a new project."""
     project_dir = PROJECTS_DIR / name
     project_dir.mkdir(parents=True, exist_ok=True)
@@ -326,6 +359,7 @@ def create_project(name, display_name=None, description=""):
         "name": name,
         "display_name": display_name or name,
         "description": description,
+        "working_directory": working_directory,
         "created": datetime.now().isoformat(),
     }
     with open(project_dir / "project.json", "w") as f:
@@ -364,8 +398,31 @@ def api_create_project():
     name = data.get("name", "").strip().replace(" ", "-").lower()
     if not name:
         return jsonify({"error": "Project name required"}), 400
-    meta = create_project(name, data.get("display_name"), data.get("description", ""))
+    meta = create_project(name, data.get("display_name"), data.get("description", ""), data.get("working_directory", ""))
     return jsonify(meta), 201
+
+
+@app.route("/api/check-directory", methods=["POST"])
+def api_check_directory():
+    data = request.json
+    path = data.get("path", "").strip()
+    if not path:
+        return jsonify({"error": "Path required"}), 400
+    exists = os.path.isdir(path)
+    return jsonify({"path": path, "exists": exists})
+
+
+@app.route("/api/create-directory", methods=["POST"])
+def api_create_directory():
+    data = request.json
+    path = data.get("path", "").strip()
+    if not path:
+        return jsonify({"error": "Path required"}), 400
+    try:
+        os.makedirs(path, exist_ok=True)
+        return jsonify({"path": path, "created": True})
+    except OSError as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/projects/<name>", methods=["DELETE"])
@@ -373,6 +430,24 @@ def api_delete_project(name):
     if delete_project(name):
         return jsonify({"status": "deleted"})
     return jsonify({"error": "Project not found"}), 404
+
+
+@app.route("/api/projects/<name>/rename", methods=["POST"])
+def api_rename_project(name):
+    data = request.json
+    new_display = data.get("display_name", "").strip()
+    if not new_display:
+        return jsonify({"error": "Display name required"}), 400
+    project_dir = PROJECTS_DIR / name
+    meta_path = project_dir / "project.json"
+    if not meta_path.exists():
+        return jsonify({"error": "Project not found"}), 404
+    with open(meta_path) as f:
+        meta = json.load(f)
+    meta["display_name"] = new_display
+    with open(meta_path, "w") as f:
+        json.dump(meta, f, indent=2)
+    return jsonify(meta)
 
 
 # ── Session API ──
@@ -388,6 +463,53 @@ def api_get_session(project, session_id):
     if session:
         return jsonify(session)
     return jsonify({"error": "Session not found"}), 404
+
+
+@app.route("/api/projects/<project>/sessions/<session_id>/transcript", methods=["GET"])
+def api_get_session_transcript(project, session_id):
+    """Return a cleaned transcript for context injection."""
+    session = load_session(project, session_id)
+    if not session:
+        return jsonify({"error": "Session not found"}), 404
+
+    raw = session.get("raw_transcript", "")
+    cleaned = _clean_transcript(raw)
+
+    max_chars = 80000
+    if len(cleaned) > max_chars:
+        cleaned = "...(earlier conversation truncated)...\n" + cleaned[-max_chars:]
+
+    return jsonify({
+        "transcript": cleaned,
+        "session_id": session_id,
+        "summary": session.get("summary", ""),
+    })
+
+
+@app.route("/api/projects/<project>/sessions/<session_id>", methods=["DELETE"])
+def api_delete_session(project, session_id):
+    session_path = PROJECTS_DIR / project / "sessions" / f"{session_id}.json"
+    if not session_path.exists():
+        return jsonify({"error": "Session not found"}), 404
+    session_path.unlink()
+    return jsonify({"status": "deleted"})
+
+
+@app.route("/api/projects/<project>/sessions/<session_id>/rename", methods=["POST"])
+def api_rename_session(project, session_id):
+    data = request.json
+    new_summary = data.get("summary", "").strip()
+    if not new_summary:
+        return jsonify({"error": "Summary required"}), 400
+    session_path = PROJECTS_DIR / project / "sessions" / f"{session_id}.json"
+    if not session_path.exists():
+        return jsonify({"error": "Session not found"}), 404
+    with open(session_path) as f:
+        session = json.load(f)
+    session["summary"] = new_summary
+    with open(session_path, "w") as f:
+        json.dump(session, f, indent=2)
+    return jsonify(session)
 
 
 @app.route("/api/sessions/save", methods=["POST"])
@@ -407,6 +529,123 @@ def api_save_current_session():
     record["tags"] = data.get("tags", [])
     filepath = save_session(record, project)
     return jsonify({"status": "saved", "filepath": filepath})
+
+
+# ── Export API ──
+
+@app.route("/api/projects/<project>/sessions/<session_id>/export", methods=["GET"])
+def api_export_session(project, session_id):
+    """Download a session as Markdown or plain text."""
+    fmt = request.args.get("format", "txt")
+    session = load_session(project, session_id)
+    if not session:
+        return jsonify({"error": "Session not found"}), 404
+
+    raw = session.get("raw_transcript", "")
+    cleaned = _clean_transcript(raw)
+    summary = session.get("summary", "") or session_id
+    tags = ", ".join(session.get("tags", []))
+    created = session.get("created", "")
+    ended = session.get("ended", "")
+
+    if fmt == "md":
+        content = (
+            f"# Session: {summary}\n\n"
+            f"**Project:** {project}\n"
+            f"**Date:** {created} — {ended}\n"
+        )
+        if tags:
+            content += f"**Tags:** {tags}\n"
+        content += f"\n---\n\n```\n{cleaned}\n```\n"
+        mimetype = "text/markdown"
+        ext = "md"
+    else:
+        content = (
+            f"Session: {summary}\n"
+            f"Project: {project}\n"
+            f"Date: {created} — {ended}\n"
+        )
+        if tags:
+            content += f"Tags: {tags}\n"
+        content += f"\n{'=' * 80}\n\n{cleaned}\n"
+        mimetype = "text/plain"
+        ext = "txt"
+
+    return Response(
+        content,
+        mimetype=mimetype,
+        headers={"Content-Disposition": f"attachment; filename={session_id}.{ext}"},
+    )
+
+
+# ── Compare API ──
+
+@app.route("/api/sessions/compare", methods=["GET"])
+def api_compare_sessions():
+    """Return cleaned transcripts for two sessions for side-by-side comparison."""
+    project_a = request.args.get("projectA", "")
+    session_a = request.args.get("sessionA", "")
+    project_b = request.args.get("projectB", "")
+    session_b = request.args.get("sessionB", "")
+
+    result = {}
+    for label, proj, sid in [("a", project_a, session_a), ("b", project_b, session_b)]:
+        sess = load_session(proj, sid)
+        if not sess:
+            return jsonify({"error": f"Session {label.upper()} not found"}), 404
+        raw = sess.get("raw_transcript", "")
+        cleaned = _clean_transcript(raw)
+        max_chars = 80000
+        if len(cleaned) > max_chars:
+            cleaned = "...(earlier conversation truncated)...\n" + cleaned[-max_chars:]
+        result[label] = {
+            "session_id": sid,
+            "summary": sess.get("summary", ""),
+            "created": sess.get("created", ""),
+            "transcript": cleaned,
+        }
+
+    return jsonify(result)
+
+
+# ── CLAUDE.md API ──
+
+def _get_project_working_dir(project_name):
+    """Resolve the working directory for a project."""
+    meta_file = PROJECTS_DIR / project_name / "project.json"
+    if meta_file.exists():
+        with open(meta_file, "r") as f:
+            meta = json.load(f)
+            wd = meta.get("working_directory", "")
+            if wd:
+                return wd
+    return str(Path.home())
+
+
+@app.route("/api/projects/<project>/claude-md", methods=["GET"])
+def api_get_claude_md(project):
+    """Read the CLAUDE.md file for a project's working directory."""
+    wd = _get_project_working_dir(project)
+    filepath = Path(wd) / "CLAUDE.md"
+    content = ""
+    exists = False
+    if filepath.exists():
+        with open(filepath, "r", encoding="utf-8") as f:
+            content = f.read()
+        exists = True
+    return jsonify({"content": content, "path": str(filepath), "exists": exists})
+
+
+@app.route("/api/projects/<project>/claude-md", methods=["PUT"])
+def api_put_claude_md(project):
+    """Write the CLAUDE.md file for a project's working directory."""
+    wd = _get_project_working_dir(project)
+    filepath = Path(wd) / "CLAUDE.md"
+    data = request.json
+    content = data.get("content", "")
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(content)
+    return jsonify({"status": "saved", "path": str(filepath)})
 
 
 # ── Search API ──
@@ -482,7 +721,39 @@ def on_start_terminal(data):
                 meta = json.load(f)
                 project_path = meta.get("working_directory")
 
-    success = _spawn_terminal(sid, project_path)
+    # Generate a Claude session ID so we can resume later via claude --resume
+    claude_session_id = str(uuid.uuid4())
+    cmd = f"{CLAUDE_CMD} --session-id {claude_session_id}"
+
+    success = _spawn_terminal(sid, project_path, cmd=cmd, claude_session_id=claude_session_id)
+    if success:
+        active_terminals[sid]["record"]["project"] = project
+        emit("terminal_ready", {"status": "ok"})
+    else:
+        emit("terminal_error", {"message": "Failed to spawn terminal"})
+
+
+@socketio.on("resume_session")
+def on_resume_session(data):
+    """Resume a previous session using Claude Code's native --resume flag."""
+    sid = request.sid
+    project = data.get("project")
+    claude_session_id = data.get("claude_session_id", "")
+    project_path = None
+
+    if not claude_session_id:
+        emit("terminal_error", {"message": "No Claude session ID found for this session"})
+        return
+
+    if project:
+        project_meta_file = PROJECTS_DIR / project / "project.json"
+        if project_meta_file.exists():
+            with open(project_meta_file) as f:
+                meta = json.load(f)
+                project_path = meta.get("working_directory")
+
+    cmd = f"{CLAUDE_CMD} --resume {claude_session_id}"
+    success = _spawn_terminal(sid, project_path, cmd=cmd, claude_session_id=claude_session_id)
     if success:
         active_terminals[sid]["record"]["project"] = project
         emit("terminal_ready", {"status": "ok"})

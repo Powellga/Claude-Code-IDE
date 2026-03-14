@@ -68,6 +68,14 @@
                     <span class="tab-icon">📄</span>
                     <span class="tab-label">Session Viewer</span>
                 </div>
+                <div class="tab" data-tab="diff">
+                    <span class="tab-icon">⇔</span>
+                    <span class="tab-label">Compare</span>
+                </div>
+                <div class="tab" data-tab="claudemd">
+                    <span class="tab-icon">📝</span>
+                    <span class="tab-label">CLAUDE.md</span>
+                </div>
             </div>
 
             <!-- Terminal Panel -->
@@ -88,6 +96,8 @@
                 <div id="viewer-toolbar">
                     <span id="viewer-title">Select a session to view</span>
                     <div class="toolbar-spacer"></div>
+                    <button id="btn-export-md" class="toolbar-btn" style="display:none;" title="Download as Markdown">Export .md</button>
+                    <button id="btn-export-txt" class="toolbar-btn" style="display:none;" title="Download as text">Export .txt</button>
                     <button id="btn-resume" class="toolbar-btn" style="display:none;">▶ Resume This Session</button>
                 </div>
                 <div id="session-content">
@@ -95,6 +105,42 @@
                         <div class="empty-icon">📂</div>
                         <p>Select a session from the sidebar to view its conversation history.</p>
                     </div>
+                </div>
+            </div>
+
+            <!-- Compare / Diff Panel -->
+            <div id="diff-panel" class="panel">
+                <div id="diff-toolbar">
+                    <label class="diff-label">Session A:</label>
+                    <select id="diff-select-a" class="toolbar-select"></select>
+                    <label class="diff-label">Session B:</label>
+                    <select id="diff-select-b" class="toolbar-select"></select>
+                    <button id="btn-compare" class="toolbar-btn primary">Compare</button>
+                    <div class="toolbar-spacer"></div>
+                </div>
+                <div id="diff-container">
+                    <div id="diff-pane-a" class="diff-pane">
+                        <div class="diff-pane-header" id="diff-header-a">Session A</div>
+                        <div class="diff-pane-content" id="diff-content-a"></div>
+                    </div>
+                    <div id="diff-divider"></div>
+                    <div id="diff-pane-b" class="diff-pane">
+                        <div class="diff-pane-header" id="diff-header-b">Session B</div>
+                        <div class="diff-pane-content" id="diff-content-b"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- CLAUDE.md Editor Panel -->
+            <div id="claudemd-panel" class="panel">
+                <div id="claudemd-toolbar">
+                    <span id="claudemd-path" class="toolbar-path">No project selected</span>
+                    <div class="toolbar-spacer"></div>
+                    <button id="btn-claudemd-reload" class="toolbar-btn" title="Reload from disk">Reload</button>
+                    <button id="btn-claudemd-save" class="toolbar-btn primary" title="Save to disk (Ctrl+S)">Save</button>
+                </div>
+                <div id="claudemd-editor-container">
+                    <textarea id="claudemd-editor" spellcheck="false" placeholder="No CLAUDE.md found. Start typing to create one..."></textarea>
                 </div>
             </div>
         </div>
@@ -124,6 +170,8 @@
                 <input type="text" id="new-project-name" class="modal-input" placeholder="my-project">
                 <label>Description (optional)</label>
                 <input type="text" id="new-project-desc" class="modal-input" placeholder="What's this project about?">
+                <label>Working Directory (optional)</label>
+                <input type="text" id="new-project-workdir" class="modal-input" placeholder="C:\path\to\project">
                 <button id="btn-create-project" class="toolbar-btn primary" style="margin-top:12px;width:100%;">Create Project</button>
             </div>
         </div>
@@ -137,6 +185,10 @@
                 <button class="modal-close" onclick="closeModal('save-modal')">&times;</button>
             </div>
             <div class="modal-body">
+                <label>Project</label>
+                <select id="save-project-select" class="modal-input">
+                    <option value="">No project</option>
+                </select>
                 <label>Summary</label>
                 <input type="text" id="save-summary" class="modal-input" placeholder="Brief description of this session...">
                 <label>Tags (comma-separated)</label>
@@ -144,6 +196,10 @@
                 <button id="btn-confirm-save" class="toolbar-btn primary" style="margin-top:12px;width:100%;">Save & Close</button>
             </div>
         </div>
+    </div>
+
+    <!-- ─── Context Menu ─────────────────────────────────────── -->
+    <div id="context-menu" style="display:none;position:fixed;z-index:2000;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,0.5);min-width:160px;padding:4px 0;">
     </div>
 
     <script src="/static/js/app.js"></script>
