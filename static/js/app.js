@@ -934,8 +934,30 @@ async function loadGitStatus() {
 
         if (data.error) {
             document.getElementById("gitdiff-status-label").textContent = data.error;
-            document.getElementById("gitdiff-files").innerHTML = "";
             document.getElementById("gitdiff-diff").textContent = "";
+
+            if (data.is_git === false) {
+                document.getElementById("gitdiff-files").innerHTML = `
+                    <div style="padding:16px;text-align:center;">
+                        <p style="color:var(--text-muted);font-size:12px;margin-bottom:10px;">This project directory is not a git repository.</p>
+                        <button id="btn-git-init" class="toolbar-btn primary" style="margin:0 auto;">Initialize Git Repo</button>
+                    </div>`;
+                document.getElementById("btn-git-init").addEventListener("click", async () => {
+                    try {
+                        const initResp = await fetch(\`/api/projects/\${encodeURIComponent(activeProject)}/git-init\`, { method: "POST" });
+                        const initData = await initResp.json();
+                        if (initData.error) {
+                            alert("Failed: " + initData.error);
+                        } else {
+                            loadGitStatus();
+                        }
+                    } catch (err) {
+                        alert("Failed to initialize git repo.");
+                    }
+                });
+            } else {
+                document.getElementById("gitdiff-files").innerHTML = "";
+            }
             return;
         }
 

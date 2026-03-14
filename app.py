@@ -686,6 +686,22 @@ def api_git_status(name):
     return jsonify(result)
 
 
+@app.route("/api/projects/<name>/git-init", methods=["POST"])
+def api_git_init(name):
+    """Initialize a git repo in the project's working directory."""
+    import subprocess
+
+    wd = _get_project_working_dir(name)
+    if not os.path.isdir(wd):
+        return jsonify({"error": "Working directory not found"}), 404
+
+    try:
+        subprocess.run(["git", "init"], cwd=wd, capture_output=True, check=True, timeout=10)
+        return jsonify({"status": "initialized", "path": wd})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/check-directory", methods=["POST"])
 def api_check_directory():
     data = request.json
