@@ -19,12 +19,13 @@ This is not a thin wrapper or a chat UI that calls an API. It manages real PTY p
 - **Conversation Import** — Paste text from claude.ai, ChatGPT, email, or any source into a modal; saved as a file and Claude picks up where it left off
 - **Quick-Resume** — Hover any project to one-click resume the most recent session
 - **Pin Projects** — Right-click to pin frequently used projects to the top of the sidebar
-- **File Tree** — Toggle a file explorer panel alongside the terminal showing the project's working directory; click any file to ask Claude to read it
+- **File Tree** — Toggle a file explorer panel alongside the terminal showing the project's working directory with path display; click any file to ask Claude to read it
 - **Git Integration** — Dedicated Git tab showing branch, changed files, recent commits, and full color-highlighted diffs; initialize new repos from the UI
 - **Timestamps** — Projects and sessions display their creation date and time in the sidebar
 - **Search** — Full-text search across all saved sessions (Ctrl+Shift+F)
 - **Settings** — Configurable Claude Code command, default project, and terminal font size
-- **Context Menus** — Right-click projects and sessions to rename, delete, set working directory, or pin
+- **Context Menus** — Right-click projects to rename, delete, set working directory, or pin; right-click sessions to rename, delete, or move to another project
+- **Smart Defaults** — New projects auto-fill a dedicated working directory (`~/Claude-Code-IDE-Workspaces/<project-name>`)
 - **Tooltips** — Hover hints on every interactive element
 - **Dark Theme** — VS Code-inspired dark UI
 
@@ -195,6 +196,7 @@ claude-code-ide/
 - [x] Phase 6: Settings, file upload, context menus, tooltips, working directory persistence
 - [x] Phase 7: Screenshot capture, conversation import, sidebar timestamps, favicon/branding, launcher script
 - [x] Phase 8: Quick-resume, pin projects, file tree viewer, git diff integration
+- [x] Phase 9: Session move, set working directory, auto-fill workspace paths, file tree path display, git init
 
 ## How Is This Different from Claude Desktop?
 
