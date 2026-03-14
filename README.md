@@ -20,11 +20,11 @@ This is not a thin wrapper or a chat UI that calls an API. It manages real PTY p
 - **Quick-Resume** — Hover any project to one-click resume the most recent session
 - **Pin Projects** — Right-click to pin frequently used projects to the top of the sidebar
 - **File Tree** — Toggle a file explorer panel alongside the terminal showing the project's working directory; click any file to ask Claude to read it
-- **Git Integration** — Dedicated Git tab showing branch, changed files, recent commits, and full color-highlighted diffs
+- **Git Integration** — Dedicated Git tab showing branch, changed files, recent commits, and full color-highlighted diffs; initialize new repos from the UI
 - **Timestamps** — Projects and sessions display their creation date and time in the sidebar
 - **Search** — Full-text search across all saved sessions (Ctrl+Shift+F)
 - **Settings** — Configurable Claude Code command, default project, and terminal font size
-- **Context Menus** — Right-click projects and sessions to rename or delete them
+- **Context Menus** — Right-click projects and sessions to rename, delete, set working directory, or pin
 - **Tooltips** — Hover hints on every interactive element
 - **Dark Theme** — VS Code-inspired dark UI
 
@@ -183,7 +183,7 @@ claude-code-ide/
 | `Ctrl+Shift+F` | Open search |
 | `Ctrl+S` | Save CLAUDE.md (when editor tab is active) |
 | `Escape` | Close modals |
-| Right-click | Context menu on projects and sessions (rename, delete) |
+| Right-click | Context menu on projects (rename, delete, pin, set working directory) and sessions (rename, delete) |
 
 ## Roadmap
 
