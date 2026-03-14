@@ -228,6 +228,9 @@ function initUI() {
     });
     document.getElementById("file-upload-input").addEventListener("change", uploadFile);
 
+    // Screenshot
+    document.getElementById("btn-screenshot").addEventListener("click", takeScreenshot);
+
     // Export buttons
     document.getElementById("btn-export-md").addEventListener("click", () => exportSession("md"));
     document.getElementById("btn-export-txt").addEventListener("click", () => exportSession("txt"));
@@ -832,6 +835,50 @@ async function uploadFile() {
         alert("Upload failed. Check console for details.");
     }
 }
+
+// ─── Screenshot Capture ─────────────────────────────────────────────────
+
+async function takeScreenshot() {
+    if (!activeProject) {
+        alert("Select a project first so the screenshot has a destination directory.");
+        return;
+    }
+
+    const btn = document.getElementById("btn-screenshot");
+    const origText = btn.textContent;
+    btn.textContent = "✂️ capturing...";
+    btn.disabled = true;
+
+    try {
+        const resp = await fetch("/api/screenshot", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ project: activeProject }),
+        });
+        const data = await resp.json();
+
+        if (data.error) {
+            alert("Screenshot failed: " + data.error);
+            return;
+        }
+
+        // If terminal is running, tell Claude to look at the screenshot
+        if (isTerminalRunning && socket) {
+            const prompt = `Look at this screenshot I just captured and describe what you see: ${data.path}\n`;
+            socket.emit("terminal_input", { data: prompt });
+            terminal.focus();
+        } else {
+            alert(`Screenshot saved to:\n${data.path}\n\nStart a Claude Code session to have Claude analyze it.`);
+        }
+    } catch (e) {
+        console.error("Screenshot failed:", e);
+        alert("Screenshot failed. Check console for details.");
+    } finally {
+        btn.textContent = origText;
+        btn.disabled = false;
+    }
+}
+
 
 // ─── Context Menu ───────────────────────────────────────────────────────
 

@@ -471,6 +471,57 @@ def api_upload_file():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/screenshot", methods=["POST"])
+def api_screenshot():
+    """Launch Windows Snipping Tool, wait for capture, save to project directory."""
+    import subprocess
+    from PIL import ImageGrab
+
+    project = request.json.get("project", "")
+    if project:
+        dest_dir = _get_project_working_dir(project)
+    else:
+        dest_dir = str(Path.home())
+
+    # Clear clipboard first so we can detect new content
+    try:
+        import ctypes
+        ctypes.windll.user32.OpenClipboard(0)
+        ctypes.windll.user32.EmptyClipboard()
+        ctypes.windll.user32.CloseClipboard()
+    except Exception:
+        pass
+
+    # Launch Windows Snipping Tool in capture mode
+    try:
+        subprocess.Popen(["snippingtool", "/clip"], shell=True)
+    except Exception:
+        try:
+            subprocess.Popen(["explorer", "ms-screenclip:"], shell=True)
+        except Exception:
+            return jsonify({"error": "Could not launch screenshot tool"}), 500
+
+    # Poll clipboard for a new image (up to 30 seconds)
+    for _ in range(60):
+        time.sleep(0.5)
+        try:
+            img = ImageGrab.grabclipboard()
+            if img is not None:
+                filename = f"screenshot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+                filepath = os.path.join(dest_dir, filename)
+                img.save(filepath, "PNG")
+                return jsonify({
+                    "status": "success",
+                    "filename": filename,
+                    "path": filepath,
+                    "size": os.path.getsize(filepath),
+                })
+        except Exception:
+            continue
+
+    return jsonify({"error": "Screenshot timed out — no image detected in clipboard"}), 408
+
+
 @app.route("/api/check-directory", methods=["POST"])
 def api_check_directory():
     data = request.json

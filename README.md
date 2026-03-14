@@ -15,6 +15,8 @@ This is not a thin wrapper or a chat UI that calls an API. It manages real PTY p
 - **Session Compare** — Side-by-side diff view of any two sessions within a project
 - **CLAUDE.md Editor** — Read, edit, and save CLAUDE.md project instructions directly in the IDE
 - **File Upload** — Upload files (Excel, Word, images, etc.) to the project directory for Claude to read via MCP tools
+- **Screenshot Capture** — One-click Windows Snipping Tool integration: capture a screen region and Claude analyzes it automatically
+- **Timestamps** — Projects and sessions display their creation date and time in the sidebar
 - **Search** — Full-text search across all saved sessions (Ctrl+Shift+F)
 - **Settings** — Configurable Claude Code command, default project, and terminal font size
 - **Context Menus** — Right-click projects and sessions to rename or delete them
@@ -36,6 +38,9 @@ Rather than trying to inject previous conversation context into a new session (w
 
 ### MCP Tool Integration
 The IDE works with a companion [Browser & File MCP Server](https://github.com/Powellga/Claude_Browser_MCP_Server) that exposes 25 tools — 18 for browser automation (Playwright) and 7 for file processing (Excel, Word, PowerPoint, CSV, images). The file upload button in the IDE drops files into the project's working directory and auto-prompts Claude to read them. Claude Code discovers and connects to the MCP server automatically via its config — the IDE doesn't need to broker the connection.
+
+### Screenshot Capture Pipeline
+The screenshot button launches Windows Snipping Tool in capture mode (`snippingtool /clip`), then polls the system clipboard via `PIL.ImageGrab.grabclipboard()` for up to 30 seconds waiting for the captured image. Once detected, it saves the image as a timestamped PNG to the project's working directory and auto-prompts Claude to analyze it. The clipboard is cleared before launching the tool so stale images aren't picked up. The entire flow — launch tool, detect capture, save file, prompt Claude — happens from a single button click.
 
 ### Working Directory Persistence
 Each project has a configurable working directory. When you start a session, the PTY process spawns in that directory. The directory path is saved with every session record, so resumed sessions return to their original location even if the project config changes later. If the specified directory doesn't exist at project creation time, the IDE prompts to create it.
@@ -87,7 +92,8 @@ Then open **http://localhost:5000** in your browser.
 6. Click a saved session to view it, then **Resume** to continue where you left off
 7. Use the **Compare** tab to diff two sessions side-by-side
 8. Use the **CLAUDE.md** tab to edit project instructions
-9. Click the **upload button** to upload files for Claude to analyze via MCP tools
+9. Click the **📎 upload button** to upload files for Claude to analyze via MCP tools
+10. Click the **✂️ screenshot button** to capture a screen region — Claude will analyze it automatically
 
 ## Tabs
 
@@ -180,6 +186,7 @@ claude-code-ide/
 - [x] Phase 4: Session resume (Claude Code native `--session-id` / `--resume` flags)
 - [x] Phase 5: Session diffing, export, and CLAUDE.md editor
 - [x] Phase 6: Settings, file upload, context menus, tooltips, working directory persistence
+- [x] Phase 7: Screenshot capture, sidebar timestamps, favicon/branding
 
 ## How Is This Different from Claude Desktop?
 
@@ -198,6 +205,7 @@ Claude Desktop is Anthropic's official desktop app. It's a conversation tool —
 | Working directory control | No | Each project spawns in its configured directory |
 | Full CLI capabilities | No — different integration path | Yes — all Claude Code features, slash commands, hooks, MCP tools |
 | File upload for analysis | Built-in | Upload button drops files in project directory, auto-prompts Claude |
+| Screenshot capture | No — paste image manually | One-click: launches Snipping Tool, saves to project, auto-prompts Claude |
 | Code transparency | Closed source | You own every line — fully inspectable and modifiable |
 
 **Claude Desktop is more powerful for single conversations** — polished UI, faster responses, native file handling.
