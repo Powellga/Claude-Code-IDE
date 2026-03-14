@@ -709,6 +709,19 @@ def api_git_init(name):
         return jsonify({"error": str(e)}), 500
 
 
+WORKSPACES_BASE = Path(os.getenv("CLAUDE_IDE_WORKSPACES",
+                       Path.home() / "Claude-Code-IDE-Workspaces"))
+
+
+@app.route("/api/default-workdir", methods=["GET"])
+def api_default_workdir():
+    """Return the default working directory path for a project name."""
+    name = request.args.get("name", "").strip().replace(" ", "-").lower()
+    if not name:
+        return jsonify({"path": ""})
+    return jsonify({"path": str(WORKSPACES_BASE / name)})
+
+
 @app.route("/api/check-directory", methods=["POST"])
 def api_check_directory():
     data = request.json

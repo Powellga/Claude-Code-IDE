@@ -297,7 +297,32 @@ function initUI() {
     });
 
     // New project
-    document.getElementById("btn-new-project").addEventListener("click", () => openModal("project-modal"));
+    document.getElementById("btn-new-project").addEventListener("click", () => {
+        document.getElementById("new-project-name").value = "";
+        document.getElementById("new-project-desc").value = "";
+        document.getElementById("new-project-workdir").value = "";
+        delete document.getElementById("new-project-workdir").dataset.manual;
+        openModal("project-modal");
+    });
+
+    // Auto-fill working directory as user types project name
+    document.getElementById("new-project-name").addEventListener("input", async () => {
+        const name = document.getElementById("new-project-name").value.trim().replace(/\s+/g, "-").toLowerCase();
+        const workdirInput = document.getElementById("new-project-workdir");
+        if (name && !workdirInput.dataset.manual) {
+            const resp = await fetch("/api/default-workdir?name=" + encodeURIComponent(name));
+            const data = await resp.json();
+            workdirInput.value = data.path || "";
+        } else if (!name) {
+            workdirInput.value = "";
+            delete workdirInput.dataset.manual;
+        }
+    });
+
+    // If user manually edits the workdir, stop auto-filling
+    document.getElementById("new-project-workdir").addEventListener("input", () => {
+        document.getElementById("new-project-workdir").dataset.manual = "true";
+    });
     document.getElementById("btn-new-session").addEventListener("click", () => {
         // Switch to terminal tab and start
         document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
