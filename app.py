@@ -319,6 +319,8 @@ def list_sessions(project_name):
                     "ended": data.get("ended", ""),
                     "summary": data.get("summary", ""),
                     "tags": data.get("tags", []),
+                    "claude_session_id": data.get("claude_session_id", ""),
+                    "working_directory": data.get("working_directory", ""),
                 })
         except Exception:
             continue
@@ -344,8 +346,11 @@ def list_projects():
                 "display_name": meta.get("display_name", d.name),
                 "created": meta.get("created", ""),
                 "description": meta.get("description", ""),
+                "pinned": meta.get("pinned", False),
                 "session_count": session_count,
             })
+    # Sort pinned projects to the top
+    projects.sort(key=lambda p: (not p["pinned"], p["name"]))
     return projects
 
 
@@ -586,6 +591,21 @@ def api_delete_project(name):
     if delete_project(name):
         return jsonify({"status": "deleted"})
     return jsonify({"error": "Project not found"}), 404
+
+
+@app.route("/api/projects/<name>/pin", methods=["POST"])
+def api_pin_project(name):
+    """Toggle the pinned state of a project."""
+    project_dir = PROJECTS_DIR / name
+    meta_path = project_dir / "project.json"
+    if not meta_path.exists():
+        return jsonify({"error": "Project not found"}), 404
+    with open(meta_path) as f:
+        meta = json.load(f)
+    meta["pinned"] = not meta.get("pinned", False)
+    with open(meta_path, "w") as f:
+        json.dump(meta, f, indent=2)
+    return jsonify(meta)
 
 
 @app.route("/api/projects/<name>/rename", methods=["POST"])

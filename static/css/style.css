@@ -190,6 +190,27 @@ html, body {
     flex-shrink: 0;
 }
 
+.quick-resume-btn {
+    background: none;
+    border: none;
+    color: var(--accent);
+    cursor: pointer;
+    font-size: 10px;
+    padding: 0 4px;
+    opacity: 0;
+    transition: opacity 0.15s;
+    flex-shrink: 0;
+}
+
+.sidebar-item:hover .quick-resume-btn {
+    opacity: 0.7;
+}
+
+.quick-resume-btn:hover {
+    opacity: 1 !important;
+    color: var(--accent-hover);
+}
+
 .sidebar-item.session-item {
     padding-left: 28px;
     font-size: 11px;

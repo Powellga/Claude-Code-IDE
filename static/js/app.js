@@ -375,14 +375,16 @@ function renderProjectList(projects) {
     list.innerHTML = projects.map(p => {
         const created = p.created ? new Date(p.created) : null;
         const dateStr = created ? created.toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
+        const pinIcon = p.pinned ? "📌" : "📁";
 
         return `
         <div class="sidebar-item ${activeProject === p.name ? 'active' : ''}"
              data-project="${escapeAttr(p.name)}"
              title="${escapeAttr((p.description || p.name) + ' — ' + p.session_count + ' session(s). Right-click for options.')}">
-            <span class="item-icon">📁</span>
+            <span class="item-icon">${pinIcon}</span>
             <span class="item-label">${escapeHtml(p.display_name || p.name)}</span>
             <span class="item-meta">${dateStr}</span>
+            ${p.session_count > 0 ? `<button class="quick-resume-btn" data-qr-project="${escapeAttr(p.name)}" title="Quick-resume last session">▶</button>` : ''}
             <span class="item-count">${p.session_count}</span>
         </div>`;
     }).join("");
@@ -390,6 +392,14 @@ function renderProjectList(projects) {
     list.querySelectorAll(".sidebar-item[data-project]").forEach(el => {
         el.addEventListener("click", () => selectProject(el.dataset.project));
         el.addEventListener("contextmenu", (e) => onProjectContextMenu(e, el.dataset.project));
+    });
+
+    // Quick-resume buttons
+    list.querySelectorAll(".quick-resume-btn").forEach(btn => {
+        btn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            quickResume(btn.dataset.qrProject);
+        });
     });
 }
 
@@ -964,7 +974,12 @@ document.addEventListener("click", () => {
 });
 
 function onProjectContextMenu(e, projectName) {
+    // Check if project is currently pinned
+    const item = document.querySelector(`.sidebar-item[data-project="${projectName}"] .item-icon`);
+    const isPinned = item && item.textContent.trim() === "📌";
+
     showContextMenu(e, [
+        { label: isPinned ? "Unpin Project" : "Pin to Top", action: "pin", handler: () => togglePinProject(projectName) },
         { label: "Rename Project", action: "rename", handler: () => renameProject(projectName) },
         "---",
         { label: "Delete Project", action: "delete", danger: true, handler: () => deleteProject(projectName) },
@@ -977,6 +992,56 @@ function onSessionContextMenu(e, project, sessionId) {
         "---",
         { label: "Delete Session", action: "delete", danger: true, handler: () => deleteSession(project, sessionId) },
     ]);
+}
+
+async function togglePinProject(name) {
+    try {
+        await fetch(`/api/projects/${encodeURIComponent(name)}/pin`, { method: "POST" });
+        await loadProjects();
+    } catch (e) {
+        console.error("Pin toggle failed:", e);
+    }
+}
+
+async function quickResume(projectName) {
+    try {
+        const resp = await fetch(`/api/projects/${encodeURIComponent(projectName)}/sessions`);
+        const sessions = await resp.json();
+
+        if (sessions.length === 0) return;
+
+        const latest = sessions[0]; // Already sorted newest first
+        if (!latest.claude_session_id) {
+            alert("The most recent session cannot be resumed (no Claude session ID).");
+            return;
+        }
+
+        if (isTerminalRunning) {
+            if (!confirm("A terminal is already running. Stop it and resume the last session?")) return;
+            socket.emit("stop_terminal", { project: activeProject, summary: "", tags: [] });
+            await new Promise(resolve => setTimeout(resolve, 500));
+        }
+
+        // Select the project
+        await selectProject(projectName);
+
+        // Switch to terminal tab
+        document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+        document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
+        document.querySelector('[data-tab="terminal"]').classList.add("active");
+        document.getElementById("terminal-panel").classList.add("active");
+
+        terminal.clear();
+        terminal.writeln(`\x1b[90m  Quick-resuming last session: ${latest.summary || latest.id}...\x1b[0m\r\n`);
+
+        socket.emit("resume_session", {
+            project: projectName,
+            claude_session_id: latest.claude_session_id,
+            working_directory: latest.working_directory || "",
+        });
+    } catch (e) {
+        console.error("Quick resume failed:", e);
+    }
 }
 
 async function renameProject(name) {
