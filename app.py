@@ -378,11 +378,49 @@ def delete_project(name):
     return False
 
 
+# ─── Settings ────────────────────────────────────────────────────────────────
+
+SETTINGS_FILE = DATA_DIR / "settings.json"
+
+def load_settings():
+    if SETTINGS_FILE.exists():
+        with open(SETTINGS_FILE) as f:
+            return json.load(f)
+    return {"claude_cmd": CLAUDE_CMD, "default_project": "", "font_size": 14}
+
+def save_settings(settings):
+    with open(SETTINGS_FILE, "w") as f:
+        json.dump(settings, f, indent=2)
+
+
 # ─── Routes ─────────────────────────────────────────────────────────────────
 
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+# ── Settings API ──
+
+@app.route("/api/settings", methods=["GET"])
+def api_get_settings():
+    return jsonify(load_settings())
+
+
+@app.route("/api/settings", methods=["PUT"])
+def api_put_settings():
+    global CLAUDE_CMD
+    data = request.json
+    settings = load_settings()
+    if "claude_cmd" in data:
+        settings["claude_cmd"] = data["claude_cmd"].strip() or "claude"
+        CLAUDE_CMD = settings["claude_cmd"]
+    if "default_project" in data:
+        settings["default_project"] = data["default_project"]
+    if "font_size" in data:
+        settings["font_size"] = max(10, min(24, int(data["font_size"])))
+    save_settings(settings)
+    return jsonify(settings)
 
 
 # ── Project API ──
@@ -400,6 +438,37 @@ def api_create_project():
         return jsonify({"error": "Project name required"}), 400
     meta = create_project(name, data.get("display_name"), data.get("description", ""), data.get("working_directory", ""))
     return jsonify(meta), 201
+
+
+@app.route("/api/upload", methods=["POST"])
+def api_upload_file():
+    """Upload a file to the active project's working directory."""
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+    f = request.files["file"]
+    if not f.filename:
+        return jsonify({"error": "No file selected"}), 400
+
+    project = request.form.get("project", "")
+    if project:
+        dest_dir = _get_project_working_dir(project)
+    else:
+        dest_dir = str(Path.home())
+
+    # Secure the filename — keep original name but strip path components
+    filename = os.path.basename(f.filename)
+    dest_path = os.path.join(dest_dir, filename)
+
+    try:
+        f.save(dest_path)
+        return jsonify({
+            "status": "success",
+            "filename": filename,
+            "path": dest_path,
+            "size": os.path.getsize(dest_path),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/check-directory", methods=["POST"])
@@ -714,12 +783,13 @@ def on_start_terminal(data):
     project_path = None
 
     if project:
-        # Use project directory as working directory if it maps to a real path
         project_meta_file = PROJECTS_DIR / project / "project.json"
         if project_meta_file.exists():
             with open(project_meta_file) as f:
                 meta = json.load(f)
-                project_path = meta.get("working_directory")
+                wd = meta.get("working_directory", "")
+                if wd and os.path.isdir(wd):
+                    project_path = wd
 
     # Generate a Claude session ID so we can resume later via claude --resume
     claude_session_id = str(uuid.uuid4())
@@ -745,12 +815,19 @@ def on_resume_session(data):
         emit("terminal_error", {"message": "No Claude session ID found for this session"})
         return
 
-    if project:
+    # First try the working directory from the saved session
+    saved_wd = data.get("working_directory", "")
+    if saved_wd and os.path.isdir(saved_wd):
+        project_path = saved_wd
+    elif project:
+        # Fall back to the project's configured working directory
         project_meta_file = PROJECTS_DIR / project / "project.json"
         if project_meta_file.exists():
             with open(project_meta_file) as f:
                 meta = json.load(f)
-                project_path = meta.get("working_directory")
+                wd = meta.get("working_directory", "")
+                if wd and os.path.isdir(wd):
+                    project_path = wd
 
     cmd = f"{CLAUDE_CMD} --resume {claude_session_id}"
     success = _spawn_terminal(sid, project_path, cmd=cmd, claude_session_id=claude_session_id)

@@ -23,6 +23,7 @@ document.addEventListener("DOMContentLoaded", () => {
     initTerminal();
     initUI();
     loadProjects();
+    applyStartupSettings();
 });
 
 // ─── Socket.IO ─────────────────────────────────────────────────────────────
@@ -153,8 +154,7 @@ function startTerminal() {
     terminal.clear();
     terminal.writeln("\x1b[90m  Starting Claude Code...\x1b[0m\r\n");
 
-    const project = document.getElementById("project-select").value || null;
-    socket.emit("start_terminal", { project });
+    socket.emit("start_terminal", { project: activeProject });
 }
 
 async function stopTerminal() {
@@ -165,7 +165,7 @@ async function stopTerminal() {
         const resp = await fetch("/api/projects");
         const projects = await resp.json();
         const sel = document.getElementById("save-project-select");
-        const currentProject = document.getElementById("project-select").value || "";
+        const currentProject = activeProject || "";
         sel.innerHTML = '<option value="">No project</option>' +
             projects.map(p =>
                 `<option value="${escapeAttr(p.name)}" ${p.name === currentProject ? 'selected' : ''}>${escapeHtml(p.display_name || p.name)}</option>`
@@ -217,6 +217,16 @@ function initUI() {
     document.getElementById("btn-stop").addEventListener("click", stopTerminal);
     document.getElementById("btn-resume").addEventListener("click", resumeSession);
     document.getElementById("btn-confirm-save").addEventListener("click", confirmStopAndSave);
+
+    // Settings
+    document.getElementById("btn-settings").addEventListener("click", openSettings);
+    document.getElementById("btn-save-settings").addEventListener("click", saveSettings);
+
+    // Upload
+    document.getElementById("btn-upload").addEventListener("click", () => {
+        document.getElementById("file-upload-input").click();
+    });
+    document.getElementById("file-upload-input").addEventListener("change", uploadFile);
 
     // Export buttons
     document.getElementById("btn-export-md").addEventListener("click", () => exportSession("md"));
@@ -331,7 +341,6 @@ async function loadProjects() {
         const resp = await fetch("/api/projects");
         const projects = await resp.json();
         renderProjectList(projects);
-        updateProjectSelect(projects);
     } catch (e) {
         console.error("Failed to load projects:", e);
     }
@@ -349,7 +358,8 @@ function renderProjectList(projects) {
 
     list.innerHTML = projects.map(p => `
         <div class="sidebar-item ${activeProject === p.name ? 'active' : ''}"
-             data-project="${escapeAttr(p.name)}">
+             data-project="${escapeAttr(p.name)}"
+             title="${escapeAttr((p.description || p.name) + ' — ' + p.session_count + ' session(s). Right-click for options.')}">
             <span class="item-icon">📁</span>
             <span class="item-label">${escapeHtml(p.display_name || p.name)}</span>
             <span class="item-count">${p.session_count}</span>
@@ -362,18 +372,8 @@ function renderProjectList(projects) {
     });
 }
 
-function updateProjectSelect(projects) {
-    const select = document.getElementById("project-select");
-    const current = select.value;
-    select.innerHTML = '<option value="">No project</option>' +
-        projects.map(p =>
-            `<option value="${escapeAttr(p.name)}" ${p.name === current ? 'selected' : ''}>${escapeHtml(p.display_name || p.name)}</option>`
-        ).join("");
-}
-
 async function selectProject(name) {
     activeProject = name;
-    document.getElementById("project-select").value = name;
     document.getElementById("active-project-label").textContent = name;
 
     // Highlight in sidebar
@@ -473,9 +473,10 @@ function renderSessionList(sessions, project) {
 
         return `
             <div class="sidebar-item session-item ${activeSessionId === s.id ? 'active' : ''}"
-                 data-session-project="${escapeAttr(project)}" data-session-id="${escapeAttr(s.id)}">
+                 data-session-project="${escapeAttr(project)}" data-session-id="${escapeAttr(s.id)}"
+                 title="${escapeAttr(label + ' — ' + dateStr + ' ' + timeStr + '. Right-click for options.')}">
                 <span class="item-icon">💬</span>
-                <span class="item-label" title="${escapeAttr(label)}">${escapeHtml(label)}</span>
+                <span class="item-label">${escapeHtml(label)}</span>
                 <span class="session-date">${timeStr}</span>
             </div>`;
     }).join("");
@@ -544,7 +545,7 @@ async function resumeSession() {
             return;
         }
         socket.emit("stop_terminal", {
-            project: document.getElementById("project-select").value || null,
+            project: activeProject,
             summary: "",
             tags: [],
         });
@@ -578,11 +579,10 @@ async function resumeSession() {
         terminal.clear();
         terminal.writeln("\x1b[90m  Resuming previous session...\x1b[0m\r\n");
 
-        document.getElementById("project-select").value = project;
-
         socket.emit("resume_session", {
             project: project,
             claude_session_id: session.claude_session_id,
+            working_directory: session.working_directory || "",
         });
     } catch (e) {
         console.error("Failed to resume session:", e);
@@ -710,6 +710,121 @@ async function saveClaudeMd() {
         }
     } catch (e) {
         console.error("Failed to save CLAUDE.md:", e);
+    }
+}
+
+// ─── Settings ───────────────────────────────────────────────────────────
+
+async function openSettings() {
+    // Load current settings
+    try {
+        const [settingsResp, projectsResp] = await Promise.all([
+            fetch("/api/settings"),
+            fetch("/api/projects"),
+        ]);
+        const settings = await settingsResp.json();
+        const projects = await projectsResp.json();
+
+        document.getElementById("settings-claude-cmd").value = settings.claude_cmd || "claude";
+        document.getElementById("settings-font-size").value = settings.font_size || 14;
+
+        const sel = document.getElementById("settings-default-project");
+        sel.innerHTML = '<option value="">None</option>' +
+            projects.map(p =>
+                `<option value="${escapeAttr(p.name)}" ${p.name === settings.default_project ? 'selected' : ''}>${escapeHtml(p.display_name || p.name)}</option>`
+            ).join("");
+    } catch (e) {
+        console.error("Failed to load settings:", e);
+    }
+
+    openModal("settings-modal");
+}
+
+async function saveSettings() {
+    const claudeCmd = document.getElementById("settings-claude-cmd").value.trim();
+    const defaultProject = document.getElementById("settings-default-project").value;
+    const fontSize = parseInt(document.getElementById("settings-font-size").value) || 14;
+
+    try {
+        const resp = await fetch("/api/settings", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                claude_cmd: claudeCmd,
+                default_project: defaultProject,
+                font_size: fontSize,
+            }),
+        });
+        if (resp.ok) {
+            terminal.options.fontSize = fontSize;
+            if (fitAddon) fitAddon.fit();
+            closeModal("settings-modal");
+        }
+    } catch (e) {
+        console.error("Failed to save settings:", e);
+    }
+}
+
+async function applyStartupSettings() {
+    try {
+        const resp = await fetch("/api/settings");
+        const settings = await resp.json();
+
+        if (settings.font_size && settings.font_size !== 14) {
+            terminal.options.fontSize = settings.font_size;
+            if (fitAddon) fitAddon.fit();
+        }
+
+        if (settings.default_project) {
+            selectProject(settings.default_project);
+        }
+    } catch (e) {
+        // Settings not saved yet, use defaults
+    }
+}
+
+// ─── File Upload ────────────────────────────────────────────────────────
+
+async function uploadFile() {
+    const input = document.getElementById("file-upload-input");
+    const file = input.files[0];
+    if (!file) return;
+
+    // Reset input so the same file can be re-uploaded
+    input.value = "";
+
+    if (!activeProject) {
+        alert("Select a project first so the file has a destination directory.");
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("project", activeProject);
+
+    try {
+        const resp = await fetch("/api/upload", {
+            method: "POST",
+            body: formData,
+        });
+        const data = await resp.json();
+
+        if (data.error) {
+            alert("Upload failed: " + data.error);
+            return;
+        }
+
+        // If terminal is running, tell Claude to read the file
+        if (isTerminalRunning && socket) {
+            const prompt = `Read and analyze the file I just uploaded: ${data.path}\n`;
+            socket.emit("terminal_input", { data: prompt });
+            terminal.focus();
+        } else {
+            alert(`File uploaded to:\n${data.path}\n\nStart a Claude Code session to have it read the file.`);
+        }
+    } catch (e) {
+        console.error("Upload failed:", e);
+        alert("Upload failed. Check console for details.");
     }
 }
 

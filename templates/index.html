@@ -24,12 +24,14 @@
             <span class="app-title">Claude Code IDE</span>
         </div>
         <div class="titlebar-center">
-            <span id="active-project-label">No project selected</span>
+            <span id="active-project-label" title="Currently active project">No project selected</span>
         </div>
         <div class="titlebar-right">
+            <button id="btn-upload" class="titlebar-btn" title="Upload a file to the project directory for Claude to read">📎</button>
             <button id="btn-search" class="titlebar-btn" title="Search sessions (Ctrl+Shift+F)">🔍</button>
             <button id="btn-settings" class="titlebar-btn" title="Settings">⚙️</button>
         </div>
+        <input type="file" id="file-upload-input" style="display:none;" />
     </div>
 
     <!-- ─── Main Layout ────────────────────────────────────────── -->
@@ -53,26 +55,26 @@
         </div>
 
         <!-- Resize handle -->
-        <div id="sidebar-resizer"></div>
+        <div id="sidebar-resizer" title="Drag to resize sidebar"></div>
 
         <!-- Content Area -->
         <div id="content">
             <!-- Tab bar -->
             <div id="tab-bar">
-                <div class="tab active" data-tab="terminal">
+                <div class="tab active" data-tab="terminal" title="Live Claude Code terminal session">
                     <span class="tab-icon">▶</span>
                     <span class="tab-label">Terminal</span>
-                    <span class="tab-status" id="terminal-status">●</span>
+                    <span class="tab-status" id="terminal-status" title="Terminal status">●</span>
                 </div>
-                <div class="tab" data-tab="viewer">
+                <div class="tab" data-tab="viewer" title="View saved session transcripts">
                     <span class="tab-icon">📄</span>
                     <span class="tab-label">Session Viewer</span>
                 </div>
-                <div class="tab" data-tab="diff">
+                <div class="tab" data-tab="diff" title="Compare two sessions side-by-side">
                     <span class="tab-icon">⇔</span>
                     <span class="tab-label">Compare</span>
                 </div>
-                <div class="tab" data-tab="claudemd">
+                <div class="tab" data-tab="claudemd" title="Edit CLAUDE.md project instructions">
                     <span class="tab-icon">📝</span>
                     <span class="tab-label">CLAUDE.md</span>
                 </div>
@@ -81,12 +83,9 @@
             <!-- Terminal Panel -->
             <div id="terminal-panel" class="panel active">
                 <div id="terminal-toolbar">
-                    <button id="btn-start" class="toolbar-btn primary">▶ Start Claude Code</button>
-                    <button id="btn-stop" class="toolbar-btn danger" style="display:none;">■ Stop & Save</button>
+                    <button id="btn-start" class="toolbar-btn primary" title="Launch a new Claude Code session">▶ Start Claude Code</button>
+                    <button id="btn-stop" class="toolbar-btn danger" style="display:none;" title="Stop the running session and save the transcript">■ Stop & Save</button>
                     <div class="toolbar-spacer"></div>
-                    <select id="project-select" class="toolbar-select">
-                        <option value="">No project</option>
-                    </select>
                 </div>
                 <div id="terminal-container"></div>
             </div>
@@ -98,7 +97,7 @@
                     <div class="toolbar-spacer"></div>
                     <button id="btn-export-md" class="toolbar-btn" style="display:none;" title="Download as Markdown">Export .md</button>
                     <button id="btn-export-txt" class="toolbar-btn" style="display:none;" title="Download as text">Export .txt</button>
-                    <button id="btn-resume" class="toolbar-btn" style="display:none;">▶ Resume This Session</button>
+                    <button id="btn-resume" class="toolbar-btn" style="display:none;" title="Resume this session in the terminal using Claude Code's native session restore">▶ Resume This Session</button>
                 </div>
                 <div id="session-content">
                     <div class="empty-state">
@@ -112,10 +111,10 @@
             <div id="diff-panel" class="panel">
                 <div id="diff-toolbar">
                     <label class="diff-label">Session A:</label>
-                    <select id="diff-select-a" class="toolbar-select"></select>
+                    <select id="diff-select-a" class="toolbar-select" title="Select the first session to compare"></select>
                     <label class="diff-label">Session B:</label>
-                    <select id="diff-select-b" class="toolbar-select"></select>
-                    <button id="btn-compare" class="toolbar-btn primary">Compare</button>
+                    <select id="diff-select-b" class="toolbar-select" title="Select the second session to compare"></select>
+                    <button id="btn-compare" class="toolbar-btn primary" title="Load both transcripts side-by-side">Compare</button>
                     <div class="toolbar-spacer"></div>
                 </div>
                 <div id="diff-container">
@@ -134,7 +133,7 @@
             <!-- CLAUDE.md Editor Panel -->
             <div id="claudemd-panel" class="panel">
                 <div id="claudemd-toolbar">
-                    <span id="claudemd-path" class="toolbar-path">No project selected</span>
+                    <span id="claudemd-path" class="toolbar-path" title="File path of the CLAUDE.md being edited">No project selected</span>
                     <div class="toolbar-spacer"></div>
                     <button id="btn-claudemd-reload" class="toolbar-btn" title="Reload from disk">Reload</button>
                     <button id="btn-claudemd-save" class="toolbar-btn primary" title="Save to disk (Ctrl+S)">Save</button>
@@ -167,12 +166,12 @@
             </div>
             <div class="modal-body">
                 <label>Project Name</label>
-                <input type="text" id="new-project-name" class="modal-input" placeholder="my-project">
+                <input type="text" id="new-project-name" class="modal-input" placeholder="my-project" title="Used as the project folder name (spaces become dashes)">
                 <label>Description (optional)</label>
-                <input type="text" id="new-project-desc" class="modal-input" placeholder="What's this project about?">
+                <input type="text" id="new-project-desc" class="modal-input" placeholder="What's this project about?" title="A short description for your reference">
                 <label>Working Directory (optional)</label>
-                <input type="text" id="new-project-workdir" class="modal-input" placeholder="C:\path\to\project">
-                <button id="btn-create-project" class="toolbar-btn primary" style="margin-top:12px;width:100%;">Create Project</button>
+                <input type="text" id="new-project-workdir" class="modal-input" placeholder="C:\path\to\project" title="The folder Claude Code will run in — will be created if it doesn't exist">
+                <button id="btn-create-project" class="toolbar-btn primary" style="margin-top:12px;width:100%;" title="Create the project and select it">Create Project</button>
             </div>
         </div>
     </div>
@@ -186,14 +185,35 @@
             </div>
             <div class="modal-body">
                 <label>Project</label>
-                <select id="save-project-select" class="modal-input">
+                <select id="save-project-select" class="modal-input" title="Which project to save this session under">
                     <option value="">No project</option>
                 </select>
                 <label>Summary</label>
-                <input type="text" id="save-summary" class="modal-input" placeholder="Brief description of this session...">
+                <input type="text" id="save-summary" class="modal-input" placeholder="Brief description of this session..." title="A short name for this session — shown in the sidebar">
                 <label>Tags (comma-separated)</label>
-                <input type="text" id="save-tags" class="modal-input" placeholder="mcp, browser, debugging">
-                <button id="btn-confirm-save" class="toolbar-btn primary" style="margin-top:12px;width:100%;">Save & Close</button>
+                <input type="text" id="save-tags" class="modal-input" placeholder="mcp, browser, debugging" title="Optional tags for searching and organizing sessions">
+                <button id="btn-confirm-save" class="toolbar-btn primary" style="margin-top:12px;width:100%;" title="Save the transcript and close the terminal">Save & Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ─── Settings Modal ─────────────────────────────────────── -->
+    <div id="settings-modal" class="modal" style="display:none;">
+        <div class="modal-content small">
+            <div class="modal-header">
+                <span>Settings</span>
+                <button class="modal-close" onclick="closeModal('settings-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <label>Claude Code Command</label>
+                <input type="text" id="settings-claude-cmd" class="modal-input" placeholder="claude" title="The command used to launch Claude Code (e.g. claude, claude-code, or a full path)">
+                <label>Default Project</label>
+                <select id="settings-default-project" class="modal-input" title="Automatically select this project on startup">
+                    <option value="">None</option>
+                </select>
+                <label>Terminal Font Size</label>
+                <input type="number" id="settings-font-size" class="modal-input" min="10" max="24" value="14" title="Font size for the terminal (10–24)">
+                <button id="btn-save-settings" class="toolbar-btn primary" style="margin-top:12px;width:100%;" title="Save settings to server">Save Settings</button>
             </div>
         </div>
     </div>
