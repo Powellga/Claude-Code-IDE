@@ -853,11 +853,11 @@ def api_rename_session(project, session_id):
     session_path = PROJECTS_DIR / project / "sessions" / f"{session_id}.json"
     if not session_path.exists():
         return jsonify({"error": "Session not found"}), 404
-    with open(session_path) as f:
+    with open(session_path, encoding="utf-8") as f:
         session = json.load(f)
     session["summary"] = new_summary
-    with open(session_path, "w") as f:
-        json.dump(session, f, indent=2)
+    with open(session_path, "w", encoding="utf-8") as f:
+        json.dump(session, f, indent=2, ensure_ascii=False)
     return jsonify(session)
 
 

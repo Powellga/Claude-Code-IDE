@@ -1384,14 +1384,20 @@ async function renameSession(project, sessionId) {
     if (!newSummary || !newSummary.trim()) return;
 
     try {
-        await fetch(`/api/projects/${encodeURIComponent(project)}/sessions/${encodeURIComponent(sessionId)}/rename`, {
+        const resp = await fetch(`/api/projects/${encodeURIComponent(project)}/sessions/${encodeURIComponent(sessionId)}/rename`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ summary: newSummary.trim() }),
         });
+        const data = await resp.json();
+        if (data.error) {
+            alert("Rename failed: " + data.error);
+            return;
+        }
         await loadSessions(project);
     } catch (e) {
         console.error("Rename failed:", e);
+        alert("Rename failed. Check console.");
     }
 }
 
