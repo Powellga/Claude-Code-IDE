@@ -1078,7 +1078,10 @@ function toggleFileTree() {
 }
 
 async function loadFileTree() {
+    const pathEl = document.getElementById("filetree-path");
+
     if (!activeProject) {
+        pathEl.textContent = "";
         document.getElementById("filetree-content").innerHTML =
             '<div style="padding:10px;color:var(--text-muted);font-size:11px;">No project selected</div>';
         return;
@@ -1087,6 +1090,9 @@ async function loadFileTree() {
     try {
         const resp = await fetch(`/api/projects/${encodeURIComponent(activeProject)}/files`);
         const data = await resp.json();
+
+        pathEl.textContent = data.path || "";
+        pathEl.title = data.path || "Project working directory";
 
         if (data.error) {
             document.getElementById("filetree-content").innerHTML =

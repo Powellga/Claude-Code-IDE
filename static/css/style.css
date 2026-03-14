@@ -376,6 +376,17 @@ html, body {
     color: var(--text-primary);
 }
 
+#filetree-path {
+    padding: 4px 10px;
+    font-size: 10px;
+    color: var(--text-muted);
+    font-family: Consolas, monospace;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 #filetree-content {
     flex: 1;
     overflow-y: auto;
