@@ -16,6 +16,7 @@ This is not a thin wrapper or a chat UI that calls an API. It manages real PTY p
 - **CLAUDE.md Editor** — Read, edit, and save CLAUDE.md project instructions directly in the IDE
 - **File Upload** — Upload files (Excel, Word, images, etc.) to the project directory for Claude to read via MCP tools
 - **Screenshot Capture** — One-click Windows Snipping Tool integration: capture a screen region and Claude analyzes it automatically
+- **Conversation Import** — Paste text from claude.ai, ChatGPT, email, or any source into a modal; saved as a file and Claude picks up where it left off
 - **Timestamps** — Projects and sessions display their creation date and time in the sidebar
 - **Search** — Full-text search across all saved sessions (Ctrl+Shift+F)
 - **Settings** — Configurable Claude Code command, default project, and terminal font size
@@ -94,6 +95,7 @@ Then open **http://localhost:5000** in your browser.
 8. Use the **CLAUDE.md** tab to edit project instructions
 9. Click the **📎 upload button** to upload files for Claude to analyze via MCP tools
 10. Click the **✂️ screenshot button** to capture a screen region — Claude will analyze it automatically
+11. Click the **📋 import button** to paste a conversation from another source — Claude continues from it
 
 ## Tabs
 
@@ -186,7 +188,7 @@ claude-code-ide/
 - [x] Phase 4: Session resume (Claude Code native `--session-id` / `--resume` flags)
 - [x] Phase 5: Session diffing, export, and CLAUDE.md editor
 - [x] Phase 6: Settings, file upload, context menus, tooltips, working directory persistence
-- [x] Phase 7: Screenshot capture, sidebar timestamps, favicon/branding
+- [x] Phase 7: Screenshot capture, conversation import, sidebar timestamps, favicon/branding, launcher script
 
 ## How Is This Different from Claude Desktop?
 
@@ -206,6 +208,7 @@ Claude Desktop is Anthropic's official desktop app. It's a conversation tool —
 | Full CLI capabilities | No — different integration path | Yes — all Claude Code features, slash commands, hooks, MCP tools |
 | File upload for analysis | Built-in | Upload button drops files in project directory, auto-prompts Claude |
 | Screenshot capture | No — paste image manually | One-click: launches Snipping Tool, saves to project, auto-prompts Claude |
+| Import conversations | No cross-platform import | Paste from claude.ai, ChatGPT, email — Claude picks up where it left off |
 | Code transparency | Closed source | You own every line — fully inspectable and modifiable |
 
 **Claude Desktop is more powerful for single conversations** — polished UI, faster responses, native file handling.
