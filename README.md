@@ -181,6 +181,31 @@ claude-code-ide/
 - [x] Phase 5: Session diffing, export, and CLAUDE.md editor
 - [x] Phase 6: Settings, file upload, context menus, tooltips, working directory persistence
 
+## How Is This Different from Claude Desktop?
+
+Claude Desktop is Anthropic's official desktop app. It's a conversation tool — you open it, chat with Claude, and close it. This IDE is a workflow tool built for managing ongoing technical work across projects over time.
+
+| Capability | Claude Desktop | Claude Code IDE |
+|------------|---------------|-----------------|
+| Chat with Claude | Yes (direct API) | Yes (via Claude Code CLI) |
+| Native multimodal input | Built-in | Via MCP file tools + upload button |
+| Session save & organize | No — conversations aren't project-aware | Yes — save, name, tag, search, organize by project |
+| Session resume | Scroll back in history | Native `--resume` restoring full context including tool calls |
+| Session export | No | Download as `.md` or `.txt` |
+| Session compare | No | Side-by-side diff of any two sessions |
+| Project management | No | Named projects with dedicated working directories |
+| CLAUDE.md editing | External editor | Integrated editor tab with Ctrl+S |
+| Working directory control | No | Each project spawns in its configured directory |
+| Full CLI capabilities | No — different integration path | Yes — all Claude Code features, slash commands, hooks, MCP tools |
+| File upload for analysis | Built-in | Upload button drops files in project directory, auto-prompts Claude |
+| Code transparency | Closed source | You own every line — fully inspectable and modifiable |
+
+**Claude Desktop is more powerful for single conversations** — polished UI, faster responses, native file handling.
+
+**This IDE is more powerful for managing work over time** — if you're running dozens of sessions across multiple projects over weeks or months, Claude Desktop gives you no way to organize, search, compare, or resume that work. This IDE does.
+
+They solve different problems. Claude Desktop is a chat app. This is an engineering workbench.
+
 ## Companion Project
 
 **[Browser & File MCP Server](https://github.com/Powellga/Claude_Browser_MCP_Server)** — 25-tool MCP server that gives Claude Code browser automation (Playwright) and file processing (Excel, Word, PowerPoint, CSV, images). Designed to work with this IDE but usable with any MCP client.
