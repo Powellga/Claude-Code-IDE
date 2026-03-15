@@ -1122,7 +1122,11 @@ def on_start_terminal(data):
     success = _spawn_terminal(sid, project_path, cmd=cmd, claude_session_id=claude_session_id)
     if success:
         active_terminals[sid]["record"]["project"] = project
-        emit("terminal_ready", {"status": "ok"})
+        emit("terminal_ready", {
+            "status": "ok",
+            "claude_session_id": claude_session_id,
+            "working_directory": project_path or str(Path.home()),
+        })
     else:
         emit("terminal_error", {"message": "Failed to spawn terminal"})
 
@@ -1157,7 +1161,11 @@ def on_resume_session(data):
     success = _spawn_terminal(sid, project_path, cmd=cmd, claude_session_id=claude_session_id)
     if success:
         active_terminals[sid]["record"]["project"] = project
-        emit("terminal_ready", {"status": "ok"})
+        emit("terminal_ready", {
+            "status": "ok",
+            "claude_session_id": claude_session_id,
+            "working_directory": project_path or str(Path.home()),
+        })
     else:
         emit("terminal_error", {"message": "Failed to spawn terminal"})
 
@@ -1201,6 +1209,14 @@ def on_stop_terminal(data):
         record["tags"] = data.get("tags", [])
         filepath = save_session(record, project)
         emit("session_saved", {"filepath": filepath, "id": record["id"]})
+
+
+@socketio.on("discard_terminal")
+def on_discard_terminal(data):
+    """Stop the current terminal without saving."""
+    sid = request.sid
+    _kill_terminal(sid)  # Kill process, discard the record
+    print(f"[IDE] Session discarded by user: {sid}")
 
 
 # ─── Entry Point ────────────────────────────────────────────────────────────

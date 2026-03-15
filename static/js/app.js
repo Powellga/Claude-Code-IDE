@@ -15,6 +15,9 @@ let activeProject = null;
 let activeSessionId = null;
 let viewedSessionProject = null;
 let claudeMdDirty = false;
+let lastClaudeSessionId = null;
+let lastSessionWorkingDir = null;
+let wasRunningBeforeDisconnect = false;
 
 // ─── Initialize ────────────────────────────────────────────────────────────
 
@@ -29,19 +32,51 @@ document.addEventListener("DOMContentLoaded", () => {
 // ─── Socket.IO ─────────────────────────────────────────────────────────────
 
 function initSocket() {
-    socket = io({ transports: ["websocket", "polling"] });
+    socket = io({
+        transports: ["websocket", "polling"],
+        reconnection: true,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
+        reconnectionAttempts: Infinity,
+    });
 
     socket.on("connect", () => {
         console.log("[IDE] Connected to server");
+        showConnectionStatus("connected");
+
+        // Auto-resume if we were running before disconnect
+        if (wasRunningBeforeDisconnect && lastClaudeSessionId && activeProject) {
+            wasRunningBeforeDisconnect = false;
+            terminal.writeln("\r\n\x1b[33m  ⚡ Server restarted — auto-resuming session...\x1b[0m\r\n");
+            socket.emit("resume_session", {
+                project: activeProject,
+                claude_session_id: lastClaudeSessionId,
+                working_directory: lastSessionWorkingDir || "",
+            });
+        }
     });
 
     socket.on("disconnect", () => {
         console.log("[IDE] Disconnected");
+        if (isTerminalRunning) {
+            wasRunningBeforeDisconnect = true;
+        }
         setTerminalStopped();
+        showConnectionStatus("disconnected");
     });
 
-    socket.on("terminal_ready", () => {
+    socket.on("reconnecting", () => {
+        showConnectionStatus("reconnecting");
+    });
+
+    socket.on("terminal_ready", (msg) => {
         console.log("[IDE] Terminal ready");
+        if (msg && msg.claude_session_id) {
+            lastClaudeSessionId = msg.claude_session_id;
+        }
+        if (msg && msg.working_directory) {
+            lastSessionWorkingDir = msg.working_directory;
+        }
         setTerminalRunning();
         terminal.focus();
     });
@@ -204,10 +239,19 @@ function confirmStopAndSave() {
     document.getElementById("save-tags").value = "";
 }
 
+function discardTerminal() {
+    if (!isTerminalRunning) return;
+    if (!confirm("Discard this session without saving?")) return;
+    socket.emit("discard_terminal", {});
+    terminal.writeln("\r\n\x1b[90m── Session discarded ──\x1b[0m\r\n");
+    setTerminalStopped();
+}
+
 function setTerminalRunning() {
     isTerminalRunning = true;
     document.getElementById("btn-start").style.display = "none";
     document.getElementById("btn-stop").style.display = "";
+    document.getElementById("btn-discard").style.display = "";
     const status = document.getElementById("terminal-status");
     status.classList.add("running");
     status.classList.remove("stopped");
@@ -217,9 +261,37 @@ function setTerminalStopped() {
     isTerminalRunning = false;
     document.getElementById("btn-start").style.display = "";
     document.getElementById("btn-stop").style.display = "none";
+    document.getElementById("btn-discard").style.display = "none";
     const status = document.getElementById("terminal-status");
     status.classList.remove("running");
     status.classList.add("stopped");
+}
+
+function showConnectionStatus(state) {
+    let indicator = document.getElementById("connection-status");
+    if (!indicator) {
+        indicator = document.createElement("span");
+        indicator.id = "connection-status";
+        indicator.style.cssText = "font-size:11px;padding:2px 8px;border-radius:8px;margin-left:8px;transition:opacity 0.3s;";
+        document.querySelector(".titlebar-center").appendChild(indicator);
+    }
+    if (state === "connected") {
+        indicator.textContent = "Connected";
+        indicator.style.background = "#2ea04350";
+        indicator.style.color = "#2ea043";
+        // Fade out after 3 seconds
+        setTimeout(() => { indicator.style.opacity = "0"; }, 3000);
+    } else if (state === "disconnected") {
+        indicator.style.opacity = "1";
+        indicator.textContent = "Disconnected";
+        indicator.style.background = "#f8514950";
+        indicator.style.color = "#f85149";
+    } else if (state === "reconnecting") {
+        indicator.style.opacity = "1";
+        indicator.textContent = "Reconnecting...";
+        indicator.style.background = "#d2992250";
+        indicator.style.color = "#d29922";
+    }
 }
 
 // ─── UI Initialization ────────────────────────────────────────────────────
@@ -228,6 +300,7 @@ function initUI() {
     // Toolbar buttons
     document.getElementById("btn-start").addEventListener("click", startTerminal);
     document.getElementById("btn-stop").addEventListener("click", stopTerminal);
+    document.getElementById("btn-discard").addEventListener("click", discardTerminal);
     document.getElementById("btn-resume").addEventListener("click", resumeSession);
     document.getElementById("btn-confirm-save").addEventListener("click", confirmStopAndSave);
 
