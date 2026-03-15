@@ -119,6 +119,19 @@ function initTerminal() {
     terminal.open(container);
     fitAddon.fit();
 
+    // Handle paste (Ctrl+V / Ctrl+Shift+V)
+    terminal.attachCustomKeyEventHandler((e) => {
+        if (e.type === "keydown" && e.ctrlKey && (e.key === "v" || e.key === "V")) {
+            navigator.clipboard.readText().then(text => {
+                if (text && isTerminalRunning && socket) {
+                    socket.emit("terminal_input", { data: text });
+                }
+            }).catch(() => {});
+            return false; // prevent xterm from handling it
+        }
+        return true;
+    });
+
     // Send keystrokes to server
     terminal.onData((data) => {
         if (isTerminalRunning && socket) {
