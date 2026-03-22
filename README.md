@@ -88,6 +88,10 @@ python app.py
 
 Then open **http://localhost:5000** in your browser.
 
+**Note:** The IDE automatically requests admin privileges on startup.
+If you see a UAC prompt, click Yes — this ensures all Claude Code
+sessions have the elevated access needed for system-level tasks.
+
 ### 3. Use It
 
 1. Click **+ New Project** in the sidebar to create a project (optionally set a working directory)

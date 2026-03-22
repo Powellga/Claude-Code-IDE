@@ -22,6 +22,51 @@ from pathlib import Path
 from flask import Flask, render_template, request, jsonify, send_from_directory, Response
 from flask_socketio import SocketIO, emit
 
+# ─── Admin Elevation (Windows) ──────────────────────────────────────────────
+
+def _is_admin():
+    """Check if the current process is running with admin privileges."""
+    if sys.platform != "win32":
+        return os.geteuid() == 0  # Unix: check root
+    try:
+        import ctypes
+        return ctypes.windll.shell32.IsUserAnAdmin() != 0
+    except Exception:
+        return False
+
+
+def _relaunch_as_admin():
+    """Relaunch this script with admin privileges via UAC prompt."""
+    if sys.platform != "win32":
+        print("ERROR: Not running as root. Please relaunch with sudo.")
+        sys.exit(1)
+    try:
+        import ctypes
+        # ShellExecuteW with "runas" verb triggers UAC elevation
+        params = " ".join([f'"{arg}"' for arg in sys.argv])
+        result = ctypes.windll.shell32.ShellExecuteW(
+            None,           # hwnd
+            "runas",        # lpOperation — triggers UAC
+            sys.executable, # lpFile — python.exe
+            params,         # lpParameters — this script + args
+            None,           # lpDirectory
+            1               # nShowCmd — SW_SHOWNORMAL
+        )
+        if result <= 32:
+            print("ERROR: UAC elevation was denied or failed.")
+            sys.exit(1)
+        sys.exit(0)  # Exit the non-elevated instance
+    except Exception as e:
+        print(f"ERROR: Failed to relaunch as admin: {e}")
+        print("Please right-click your terminal and 'Run as Administrator'.")
+        sys.exit(1)
+
+
+# Auto-elevate on startup
+if not _is_admin():
+    print("Not running as admin — requesting elevation...")
+    _relaunch_as_admin()
+
 # ─── Configuration ──────────────────────────────────────────────────────────
 
 BASE_DIR = Path(__file__).parent
@@ -1224,6 +1269,7 @@ def on_discard_terminal(data):
 if __name__ == "__main__":
     print("=" * 50)
     print("  Claude Code IDE")
+    print(f"  Running as admin: {_is_admin()}")
     port = int(os.getenv("CLAUDE_IDE_PORT", 5050))
     print(f"  Open http://localhost:{port} in your browser")
     print(f"  Data directory: {DATA_DIR}")
