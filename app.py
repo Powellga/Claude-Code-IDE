@@ -415,7 +415,62 @@ def create_project(name, display_name=None, description="", working_directory=""
     with open(project_dir / "project.json", "w") as f:
         json.dump(meta, f, indent=2)
 
+    # Auto-create CLAUDE.md in the working directory
+    if working_directory:
+        _create_default_claude_md(working_directory, display_name or name, description)
+
     return meta
+
+
+def _create_default_claude_md(working_directory, project_name, description=""):
+    """Create a default CLAUDE.md with project context and IDE instructions."""
+    claude_md_path = Path(working_directory) / "CLAUDE.md"
+    if claude_md_path.exists():
+        return  # Don't overwrite an existing CLAUDE.md
+
+    wd_display = working_directory.replace("\\", "/")
+
+    desc_block = ""
+    if description:
+        desc_block = f"\n{description}\n"
+
+    content = f"""# {project_name}
+{desc_block}
+## Environment
+
+This project runs inside **Claude Code IDE**, a browser-based IDE that wraps the Claude Code CLI with project management, session recording, and file handling.
+
+You are not in a standalone terminal. The IDE places files directly into this working directory via toolbar buttons (file upload, screenshot capture, conversation import). When a prompt mentions a file, it is already here.
+
+## Working Directory
+
+`{wd_display}`
+
+This is the project root. All work happens here. **When asked to read or analyze a file, always check this directory first.** Do not guess other locations like Desktop or Documents.
+
+## IDE File Conventions
+
+The IDE saves files to this directory with these naming patterns:
+- **Screenshots:** `screenshot_YYYYMMDD_HHMMSS.png` — captured via the IDE's screenshot button
+- **Imported conversations:** `imported_conversation_YYYYMMDD_HHMMSS.txt` — pasted from external sources (claude.ai, ChatGPT, email, etc.)
+- **Uploaded files:** original filename preserved
+
+When you see a prompt like "Read and analyze this file in the current working directory: screenshot_20260325_143000.png", the file is already saved here. Read it directly.
+
+## Guidelines
+
+- **Stay in this directory** unless there is a specific reason to navigate elsewhere. The IDE depends on the working directory for file operations.
+- **Sessions are recorded and resumable.** When a session is resumed, your full conversation context is restored automatically — do not ask the user to repeat prior context.
+- **The IDE has a Git tab** that shows branch, changed files, recent commits, and diffs. You do not need to run git status, git log, or git diff unless the user specifically asks — they can already see this information.
+- **Be concise.** The user is working in a terminal-sized panel, not a full-page chat interface.
+"""
+
+    try:
+        with open(claude_md_path, "w", encoding="utf-8") as f:
+            f.write(content.strip() + "\n")
+        print(f"[IDE] Created CLAUDE.md: {claude_md_path}")
+    except Exception as e:
+        print(f"[IDE] Failed to create CLAUDE.md: {e}")
 
 
 def delete_project(name):
