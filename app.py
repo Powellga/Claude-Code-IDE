@@ -1261,7 +1261,8 @@ def api_import_session():
     if project_dir.exists():
         return jsonify({"error": f"Project '{project_name}' already exists"}), 409
 
-    # Determine working directory: use original if it exists, else create new
+    # Determine working directory for the IDE project
+    # For resume to work, we must track the ORIGINAL directory where the session ran
     if original_dir and os.path.isdir(original_dir):
         working_directory = original_dir
     else:
@@ -1272,13 +1273,14 @@ def api_import_session():
     meta = create_project(project_name, display_name, "", working_directory)
 
     # Create a session record so it appears in the project's session list
+    # working_directory must be the ORIGINAL dir so --resume finds the session
     session_record = {
         "id": f"sess_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}",
         "project": project_name,
         "claude_session_id": session_id,
         "created": datetime.now().isoformat(),
         "ended": "",
-        "working_directory": working_directory,
+        "working_directory": original_dir or working_directory,
         "summary": data.get("summary", "Imported session"),
         "tags": ["imported"],
         "raw_transcript": "",
