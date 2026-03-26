@@ -979,7 +979,7 @@ async function uploadFile() {
 
         // If terminal is running, tell Claude to read the file
         if (isTerminalRunning && socket) {
-            const prompt = `Read and analyze the file I just uploaded: ${data.path}\n`;
+            const prompt = `Read and analyze this file in the current working directory: ${data.filename}\n`;
             socket.emit("terminal_input", { data: prompt });
             terminal.focus();
         } else {
@@ -1019,7 +1019,7 @@ async function takeScreenshot() {
 
         // If terminal is running, tell Claude to look at the screenshot
         if (isTerminalRunning && socket) {
-            const prompt = `Look at this screenshot I just captured and describe what you see: ${data.path}\n`;
+            const prompt = `Read and analyze this screenshot image in the current working directory: ${data.filename}\n`;
             socket.emit("terminal_input", { data: prompt });
             terminal.focus();
         } else {
@@ -1203,7 +1203,7 @@ async function loadFileTree() {
         // Click on file to tell Claude to read it
         document.getElementById("filetree-content").querySelectorAll(".ft-item[data-filepath]").forEach(item => {
             item.addEventListener("click", () => {
-                const filepath = item.dataset.filepath;
+                const filepath = item.dataset.filepath.replaceAll("\\", "/");
                 if (isTerminalRunning && socket) {
                     const prompt = `Read the file: ${filepath}\n`;
                     socket.emit("terminal_input", { data: prompt });
@@ -1295,7 +1295,7 @@ async function importConversation() {
 
         // If terminal is running, tell Claude to read the imported conversation
         if (isTerminalRunning && socket) {
-            const prompt = `I've imported a previous conversation for context. Read this file and continue from where it left off: ${data.path}\n`;
+            const prompt = `I've imported a previous conversation for context. Read this file in the current working directory and continue from where it left off: ${data.filename}\n`;
             socket.emit("terminal_input", { data: prompt });
             terminal.focus();
         } else {

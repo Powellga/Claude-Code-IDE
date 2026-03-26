@@ -588,21 +588,39 @@ def api_screenshot():
             return jsonify({"error": "Could not launch screenshot tool"}), 500
 
     # Poll clipboard for a new image (up to 30 seconds)
+    from PIL import Image
     for _ in range(60):
         time.sleep(0.5)
         try:
-            img = ImageGrab.grabclipboard()
+            clip = ImageGrab.grabclipboard()
+            if clip is None:
+                continue
+
+            img = None
+            # grabclipboard() returns an Image for raw bitmap data,
+            # but on Windows 11 the Snipping Tool may put a file
+            # reference on the clipboard instead — which comes back
+            # as a list of file paths.
+            if isinstance(clip, Image.Image):
+                img = clip
+            elif isinstance(clip, list) and clip:
+                src_path = clip[0]
+                if os.path.isfile(src_path):
+                    img = Image.open(src_path)
+
             if img is not None:
                 filename = f"screenshot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
                 filepath = os.path.join(dest_dir, filename)
                 img.save(filepath, "PNG")
+                print(f"[IDE] Screenshot saved: {filepath}")
                 return jsonify({
                     "status": "success",
                     "filename": filename,
                     "path": filepath,
                     "size": os.path.getsize(filepath),
                 })
-        except Exception:
+        except Exception as e:
+            print(f"[IDE] Screenshot poll error: {e}")
             continue
 
     return jsonify({"error": "Screenshot timed out — no image detected in clipboard"}), 408
