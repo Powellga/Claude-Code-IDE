@@ -36,6 +36,7 @@
             <button id="btn-upload" class="titlebar-btn" title="Upload a file to the project directory for Claude to read">📎</button>
             <button id="btn-screenshot" class="titlebar-btn" title="Capture a screenshot for Claude to analyze">✂️</button>
             <button id="btn-import" class="titlebar-btn" title="Paste text from another conversation for Claude to continue from">📋</button>
+            <button id="btn-import-session" class="titlebar-btn" title="Import a Claude Code session from outside the IDE">📥</button>
             <button id="btn-search" class="titlebar-btn" title="Search sessions (Ctrl+Shift+F)">🔍</button>
             <button id="btn-settings" class="titlebar-btn" title="Settings">⚙️</button>
         </div>
@@ -269,6 +270,29 @@
                 <label style="margin-top:10px;">Label (optional)</label>
                 <input type="text" id="import-label" class="modal-input" placeholder="e.g. 'Claude.ai chat about VPN migration'">
                 <button id="btn-confirm-import" class="toolbar-btn primary" style="margin-top:12px;width:100%;">Import & Send to Claude</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ─── Import Session Modal ──────────────────────────────── -->
+    <div id="import-session-modal" class="modal" style="display:none;">
+        <div class="modal-content" style="max-width:700px;">
+            <div class="modal-header">
+                <span>Import Claude Code Session</span>
+                <button class="modal-close" onclick="closeModal('import-session-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <label>Select a session or paste a UUID</label>
+                <div id="import-session-list" style="max-height:300px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;margin-bottom:12px;background:var(--bg-primary);"></div>
+                <label>Session UUID</label>
+                <input type="text" id="import-session-id" class="modal-input" placeholder="e.g. 83d5df9a-e294-4732-9e57-5a890e81f3c1" title="Claude Code session UUID — select from list above or paste one you know" style="font-family:Consolas,monospace;font-size:12px;">
+                <label>Working Directory (auto-filled or enter manually)</label>
+                <input type="text" id="import-session-workdir" class="modal-input" placeholder="C:\path\to\project" title="Original working directory — leave empty to create a new workspace">
+                <label>Project Name</label>
+                <input type="text" id="import-session-name" class="modal-input" placeholder="my-imported-project" title="Name for the new IDE project">
+                <label>Session Summary</label>
+                <input type="text" id="import-session-summary" class="modal-input" placeholder="Brief description of this session" title="Shown in the session list">
+                <button id="btn-confirm-import-session" class="toolbar-btn primary" style="margin-top:12px;width:100%;">Import Session</button>
             </div>
         </div>
     </div>

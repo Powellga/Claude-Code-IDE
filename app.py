@@ -1200,6 +1200,107 @@ def api_search():
     return jsonify(results[:50])
 
 
+# ── Import External Session API ──
+
+@app.route("/api/local-sessions", methods=["GET"])
+def api_list_local_sessions():
+    """List all Claude Code sessions found in ~/.claude/history.jsonl."""
+    history_file = Path.home() / ".claude" / "history.jsonl"
+    if not history_file.exists():
+        return jsonify([])
+
+    sessions = {}
+    try:
+        with open(history_file, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                sid = entry.get("sessionId", "")
+                if not sid:
+                    continue
+                ts = entry.get("timestamp", 0)
+                if sid not in sessions:
+                    sessions[sid] = {
+                        "sessionId": sid,
+                        "project": entry.get("project", ""),
+                        "first_prompt": entry.get("display", "")[:120],
+                        "timestamp": ts,
+                        "prompt_count": 0,
+                    }
+                sessions[sid]["prompt_count"] += 1
+                sessions[sid]["last_timestamp"] = ts
+    except Exception as e:
+        print(f"[IDE] Error reading history.jsonl: {e}")
+        return jsonify([])
+
+    # Sort by last activity, newest first
+    result = sorted(sessions.values(),
+                    key=lambda s: s.get("last_timestamp", 0), reverse=True)
+    return jsonify(result)
+
+
+@app.route("/api/import-session", methods=["POST"])
+def api_import_session():
+    """Import an external Claude Code session as a new IDE project."""
+    data = request.json
+    session_id = data.get("session_id", "").strip()
+    project_name = data.get("project_name", "").strip().replace(" ", "-").lower()
+    display_name = data.get("display_name", "").strip() or project_name
+    original_dir = data.get("working_directory", "").strip()
+
+    if not session_id or not project_name:
+        return jsonify({"error": "Session ID and project name are required"}), 400
+
+    # Check if project already exists
+    project_dir = PROJECTS_DIR / project_name
+    if project_dir.exists():
+        return jsonify({"error": f"Project '{project_name}' already exists"}), 409
+
+    # Determine working directory: use original if it exists, else create new
+    if original_dir and os.path.isdir(original_dir):
+        working_directory = original_dir
+    else:
+        working_directory = str(WORKSPACES_BASE / project_name)
+        os.makedirs(working_directory, exist_ok=True)
+
+    # Create the IDE project
+    meta = create_project(project_name, display_name, "", working_directory)
+
+    # Create a session record so it appears in the project's session list
+    session_record = {
+        "id": f"sess_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}",
+        "project": project_name,
+        "claude_session_id": session_id,
+        "created": datetime.now().isoformat(),
+        "ended": "",
+        "working_directory": working_directory,
+        "summary": data.get("summary", "Imported session"),
+        "tags": ["imported"],
+        "raw_transcript": "",
+    }
+
+    session_dir = project_dir / "sessions"
+    session_dir.mkdir(parents=True, exist_ok=True)
+    session_path = session_dir / f"{session_record['id']}.json"
+    with open(session_path, "w", encoding="utf-8") as f:
+        json.dump(session_record, f, indent=2, ensure_ascii=False)
+
+    print(f"[IDE] Imported session {session_id} as project '{project_name}'")
+
+    return jsonify({
+        "status": "imported",
+        "project": project_name,
+        "session_id": session_record["id"],
+        "claude_session_id": session_id,
+        "working_directory": working_directory,
+    }), 201
+
+
 # ─── WebSocket Events ──────────────────────────────────────────────────────
 
 @socketio.on("connect")

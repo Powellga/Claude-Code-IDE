@@ -317,6 +317,10 @@ function initUI() {
     // Screenshot
     document.getElementById("btn-screenshot").addEventListener("click", takeScreenshot);
 
+    // Import external session
+    document.getElementById("btn-import-session").addEventListener("click", openImportSessionModal);
+    document.getElementById("btn-confirm-import-session").addEventListener("click", confirmImportSession);
+
     // Import conversation
     document.getElementById("btn-import").addEventListener("click", () => {
         if (!activeProject) {
@@ -1303,6 +1307,130 @@ async function importConversation() {
         }
     } catch (e) {
         console.error("Import failed:", e);
+        alert("Import failed. Check console for details.");
+    }
+}
+
+
+// ─── Import External Session ────────────────────────────────────────────
+
+async function openImportSessionModal() {
+    const listDiv = document.getElementById("import-session-list");
+    listDiv.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-muted);">Loading sessions...</div>';
+    document.getElementById("import-session-name").value = "";
+    document.getElementById("import-session-summary").value = "";
+    document.getElementById("import-session-id").value = "";
+    document.getElementById("import-session-workdir").value = "";
+    openModal("import-session-modal");
+
+    try {
+        const resp = await fetch("/api/local-sessions");
+        const sessions = await resp.json();
+
+        if (sessions.length === 0) {
+            listDiv.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-muted);">No local Claude Code sessions found.</div>';
+            return;
+        }
+
+        listDiv.innerHTML = sessions.map(s => {
+            const date = s.last_timestamp
+                ? new Date(s.last_timestamp).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                : "?";
+            const time = s.last_timestamp
+                ? new Date(s.last_timestamp).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })
+                : "";
+            const dir = (s.project || "").replace(/\\/g, "/");
+            const dirShort = dir.length > 50 ? "..." + dir.slice(-47) : dir;
+            const prompt = s.first_prompt || "(no prompt)";
+
+            return `
+                <div class="import-session-item" data-sid="${escapeAttr(s.sessionId)}" data-dir="${escapeAttr(s.project || "")}" data-prompt="${escapeAttr(prompt)}"
+                     style="padding:8px 12px;border-bottom:1px solid var(--border);cursor:pointer;transition:background 0.15s;"
+                     onmouseenter="this.style.background='var(--bg-hover)'" onmouseleave="this.style.background=''">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">
+                        <span style="font-size:12px;color:var(--text-primary);font-weight:500;">${escapeHtml(prompt.substring(0, 80))}${prompt.length > 80 ? '...' : ''}</span>
+                        <span style="font-size:10px;color:var(--text-muted);white-space:nowrap;margin-left:12px;">${date} ${time}</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-muted);">
+                        <span style="font-family:Consolas,monospace;opacity:0.7;" title="Session UUID">${escapeHtml(s.sessionId)}</span>
+                        <span>${s.prompt_count} prompt${s.prompt_count !== 1 ? 's' : ''}</span>
+                    </div>
+                    <div style="font-size:10px;color:var(--text-muted);margin-top:1px;">
+                        <span title="${escapeAttr(dir)}">${escapeHtml(dirShort)}</span>
+                    </div>
+                </div>`;
+        }).join("");
+
+        // Click to select a session
+        listDiv.querySelectorAll(".import-session-item").forEach(item => {
+            item.addEventListener("click", () => {
+                // Deselect previous
+                listDiv.querySelectorAll(".import-session-item").forEach(el => {
+                    el.style.background = "";
+                    el.style.borderLeft = "";
+                });
+                // Highlight selected
+                item.style.background = "var(--bg-hover)";
+                item.style.borderLeft = "3px solid var(--accent)";
+
+                const sid = item.dataset.sid;
+                const dir = item.dataset.dir;
+                const prompt = item.dataset.prompt;
+
+                document.getElementById("import-session-id").value = sid;
+                document.getElementById("import-session-workdir").value = dir;
+
+                // Auto-fill project name from first prompt
+                const autoName = prompt.substring(0, 50).replace(/[^a-zA-Z0-9\s-]/g, "").trim().replace(/\s+/g, "-").toLowerCase() || "imported-session";
+                document.getElementById("import-session-name").value = autoName;
+                document.getElementById("import-session-summary").value = prompt.substring(0, 100);
+            });
+        });
+    } catch (e) {
+        console.error("Failed to load local sessions:", e);
+        listDiv.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-muted);">Failed to load sessions.</div>';
+    }
+}
+
+async function confirmImportSession() {
+    const sessionId = document.getElementById("import-session-id").value;
+    const projectName = document.getElementById("import-session-name").value.trim();
+    const summary = document.getElementById("import-session-summary").value.trim();
+    const workdir = document.getElementById("import-session-workdir").value;
+
+    if (!sessionId) {
+        alert("Select a session from the list or paste a UUID.");
+        return;
+    }
+    if (!projectName) {
+        alert("Enter a project name.");
+        return;
+    }
+
+    try {
+        const resp = await fetch("/api/import-session", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                session_id: sessionId,
+                project_name: projectName,
+                display_name: projectName,
+                working_directory: workdir,
+                summary: summary || "Imported session",
+            }),
+        });
+        const data = await resp.json();
+
+        if (data.error) {
+            alert("Import failed: " + data.error);
+            return;
+        }
+
+        closeModal("import-session-modal");
+        await loadProjects();
+        selectProject(data.project);
+    } catch (e) {
+        console.error("Import session failed:", e);
         alert("Import failed. Check console for details.");
     }
 }
