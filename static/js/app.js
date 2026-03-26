@@ -685,18 +685,23 @@ async function viewSession(project, sessionId) {
         const btnExportMd = document.getElementById("btn-export-md");
         const btnExportTxt = document.getElementById("btn-export-txt");
         const cleaned = transcriptData.transcript || "";
+        const hasResumableSession = !!session.claude_session_id;
+
+        // Show resume button if session has a Claude session ID (even without transcript)
+        btnResume.style.display = hasResumableSession ? "" : "none";
+
         if (cleaned) {
             content.textContent = cleaned;
-            btnResume.style.display = "";
             btnExportMd.style.display = "";
             btnExportTxt.style.display = "";
         } else {
-            btnResume.style.display = "none";
             btnExportMd.style.display = "none";
             btnExportTxt.style.display = "none";
             content.innerHTML = `
                 <div class="empty-state">
-                    <p>This session has no recorded content.</p>
+                    <p>${hasResumableSession
+                        ? "This is an imported session — no transcript was recorded.<br>Click <b>Resume This Session</b> to continue where it left off."
+                        : "This session has no recorded content."}</p>
                 </div>`;
         }
     } catch (e) {
