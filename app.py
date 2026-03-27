@@ -1269,6 +1269,11 @@ def api_import_session():
     display_name = data.get("display_name", "").strip() or project_name
     original_dir = data.get("working_directory", "").strip()
 
+    # Clean up session_id — user might paste "claude --resume <uuid>" instead of just the UUID
+    if session_id.startswith("claude"):
+        parts = session_id.split()
+        session_id = parts[-1]  # Take the last part (the UUID)
+
     if not session_id or not project_name:
         return jsonify({"error": "Session ID and project name are required"}), 400
 
@@ -1375,6 +1380,10 @@ def on_resume_session(data):
     project = data.get("project")
     claude_session_id = data.get("claude_session_id", "")
     project_path = None
+
+    # Clean up session ID — strip "claude --resume" prefix if present
+    if claude_session_id.startswith("claude"):
+        claude_session_id = claude_session_id.split()[-1]
 
     if not claude_session_id:
         emit("terminal_error", {"message": "No Claude session ID found for this session"})
