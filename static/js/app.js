@@ -154,21 +154,52 @@ function initTerminal() {
     terminal.open(container);
     fitAddon.fit();
 
-    // Handle paste (Ctrl+V / Ctrl+Shift+V)
+    // Handle Ctrl+C (copy) and Ctrl+V (paste) in the terminal
     terminal.attachCustomKeyEventHandler((e) => {
-        if (e.type === "keydown" && e.ctrlKey && (e.key === "v" || e.key === "V")) {
+        if (e.type !== "keydown" || !e.ctrlKey) return true;
+
+        // Ctrl+C: if text is selected, copy it; otherwise let SIGINT pass through
+        if (e.key === "c" || e.key === "C") {
+            const selection = terminal.getSelection();
+            if (selection) {
+                navigator.clipboard.writeText(selection).catch(() => {});
+                return false; // prevent xterm from sending SIGINT
+            }
+            return true; // no selection — let SIGINT go through
+        }
+
+        // Ctrl+V: let the browser paste into xterm naturally via onData
+        // We just need to read clipboard and send it ourselves, since xterm's
+        // built-in paste doesn't always work in all browsers.
+        if (e.key === "v" || e.key === "V") {
             navigator.clipboard.readText().then(text => {
                 if (text && isTerminalRunning && socket) {
                     socket.emit("terminal_input", { data: text });
                 }
             }).catch(() => {});
-            return false; // prevent xterm from handling it
+            return false; // prevent xterm from ALSO handling the paste (double-paste fix)
         }
+
         return true;
     });
 
-    // Send keystrokes to server
+    // Send keystrokes to server — but filter out paste events to avoid double-paste.
+    // When Ctrl+V is pressed, the custom handler above already sends the clipboard text.
+    // xterm's onData also fires for bracket-paste sequences, so we skip those.
+    let ignoreBracketPaste = false;
     terminal.onData((data) => {
+        // Detect start of bracket paste sequence (\x1b[200~)
+        if (data.includes("\x1b[200~")) {
+            ignoreBracketPaste = true;
+            return; // skip — already handled by Ctrl+V handler
+        }
+        // Detect end of bracket paste sequence (\x1b[201~)
+        if (data.includes("\x1b[201~")) {
+            ignoreBracketPaste = false;
+            return; // skip
+        }
+        if (ignoreBracketPaste) return; // skip pasted content
+
         if (isTerminalRunning && socket) {
             socket.emit("terminal_input", { data });
         }
