@@ -333,6 +333,7 @@ function initUI() {
     document.getElementById("btn-stop").addEventListener("click", stopTerminal);
     document.getElementById("btn-discard").addEventListener("click", discardTerminal);
     document.getElementById("btn-resume").addEventListener("click", resumeSession);
+    document.getElementById("btn-copy-uuid").addEventListener("click", copySessionUuid);
     document.getElementById("btn-confirm-save").addEventListener("click", confirmStopAndSave);
 
     // Settings
@@ -404,6 +405,8 @@ function initUI() {
                 document.getElementById("btn-resume").style.display = "none";
                 document.getElementById("btn-export-md").style.display = "none";
                 document.getElementById("btn-export-txt").style.display = "none";
+                document.getElementById("viewer-uuid").style.display = "none";
+                document.getElementById("btn-copy-uuid").style.display = "none";
             }
             if (tab.dataset.tab === "diff") {
                 populateDiffSelectors();
@@ -669,10 +672,11 @@ function renderSessionList(sessions, project) {
         const timeStr = date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
         const label = s.summary || `Session ${dateStr}`;
 
+        const uuidHint = s.claude_session_id ? `\nUUID: ${s.claude_session_id}` : '';
         return `
             <div class="sidebar-item session-item ${activeSessionId === s.id ? 'active' : ''}"
                  data-session-project="${escapeAttr(project)}" data-session-id="${escapeAttr(s.id)}"
-                 title="${escapeAttr(label + ' — ' + dateStr + ' ' + timeStr + '. Right-click for options.')}">
+                 title="${escapeAttr(label + ' — ' + dateStr + ' ' + timeStr + uuidHint + '\nRight-click for options.')}">
                 <span class="item-icon">💬</span>
                 <span class="item-label">${escapeHtml(label)}</span>
                 <span class="session-date">${dateStr} ${timeStr}</span>
@@ -711,6 +715,18 @@ async function viewSession(project, sessionId) {
         document.getElementById("viewer-title").textContent =
             session.summary || `Session from ${new Date(session.created).toLocaleString()}`;
 
+        // Show UUID with copy button
+        const uuidSpan = document.getElementById("viewer-uuid");
+        const btnCopyUuid = document.getElementById("btn-copy-uuid");
+        if (session.claude_session_id) {
+            uuidSpan.textContent = session.claude_session_id;
+            uuidSpan.style.display = "";
+            btnCopyUuid.style.display = "";
+        } else {
+            uuidSpan.style.display = "none";
+            btnCopyUuid.style.display = "none";
+        }
+
         const content = document.getElementById("session-content");
         const btnResume = document.getElementById("btn-resume");
         const btnExportMd = document.getElementById("btn-export-md");
@@ -738,6 +754,19 @@ async function viewSession(project, sessionId) {
     } catch (e) {
         console.error("Failed to load session:", e);
     }
+}
+
+// ─── Copy UUID ──────────────────────────────────────────────────────────────
+
+function copySessionUuid() {
+    const uuid = document.getElementById("viewer-uuid").textContent;
+    if (!uuid) return;
+    navigator.clipboard.writeText(uuid).then(() => {
+        const btn = document.getElementById("btn-copy-uuid");
+        const orig = btn.textContent;
+        btn.textContent = "Copied!";
+        setTimeout(() => { btn.textContent = orig; }, 1500);
+    }).catch(() => {});
 }
 
 // ─── Resume Session ─────────────────────────────────────────────────────────
