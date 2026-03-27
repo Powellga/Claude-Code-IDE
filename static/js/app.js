@@ -999,14 +999,13 @@ async function saveSettings() {
 }
 
 async function restartServer() {
-    if (!confirm("Restart the IDE server? Any running terminal session will be interrupted.")) return;
+    if (!confirm("Kill the IDE server?\n\nYou will need to restart it manually to continue using the IDE.")) return;
     closeModal("settings-modal");
     try {
         await fetch("/api/restart", { method: "POST" });
-    } catch (e) { /* expected — server is restarting */ }
-    // Show status in terminal
+    } catch (e) { /* expected — server is shutting down */ }
     if (terminal) {
-        terminal.writeln("\r\n\x1b[33m  Server restarting — will auto-reconnect...\x1b[0m\r\n");
+        terminal.writeln("\r\n\x1b[31m  Server killed. Restart manually to continue.\x1b[0m\r\n");
     }
 }
 
