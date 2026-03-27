@@ -528,6 +528,22 @@ def api_put_settings():
     return jsonify(settings)
 
 
+# ── Restart API ──
+
+@app.route("/api/restart", methods=["POST"])
+def api_restart():
+    """Restart the IDE server process."""
+    import threading
+
+    def _do_restart():
+        time.sleep(1)  # Give the response time to reach the client
+        print("[IDE] Restarting server...")
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+
+    threading.Thread(target=_do_restart, daemon=True).start()
+    return jsonify({"status": "restarting"})
+
+
 # ── Project API ──
 
 @app.route("/api/projects", methods=["GET"])

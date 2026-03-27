@@ -339,6 +339,7 @@ function initUI() {
     // Settings
     document.getElementById("btn-settings").addEventListener("click", openSettings);
     document.getElementById("btn-save-settings").addEventListener("click", saveSettings);
+    document.getElementById("btn-restart-server").addEventListener("click", restartServer);
 
     // Upload
     document.getElementById("btn-upload").addEventListener("click", () => {
@@ -994,6 +995,18 @@ async function saveSettings() {
         }
     } catch (e) {
         console.error("Failed to save settings:", e);
+    }
+}
+
+async function restartServer() {
+    if (!confirm("Restart the IDE server? Any running terminal session will be interrupted.")) return;
+    closeModal("settings-modal");
+    try {
+        await fetch("/api/restart", { method: "POST" });
+    } catch (e) { /* expected — server is restarting */ }
+    // Show status in terminal
+    if (terminal) {
+        terminal.writeln("\r\n\x1b[33m  Server restarting — will auto-reconnect...\x1b[0m\r\n");
     }
 }
 
