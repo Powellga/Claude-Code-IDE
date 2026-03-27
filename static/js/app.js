@@ -154,7 +154,11 @@ function initTerminal() {
     terminal.open(container);
     fitAddon.fit();
 
-    // Handle Ctrl+C (copy) and Ctrl+V (paste) in the terminal
+    // Track when Ctrl+V fires so onData can skip the duplicate bracket-paste.
+    // Uses a short timeout instead of a persistent flag — auto-expires in 200ms
+    // so it can never permanently block input.
+    let ctrlVJustFired = false;
+
     terminal.attachCustomKeyEventHandler((e) => {
         if (e.type !== "keydown" || !e.ctrlKey) return true;
 
@@ -163,40 +167,44 @@ function initTerminal() {
             const selection = terminal.getSelection();
             if (selection) {
                 navigator.clipboard.writeText(selection).catch(() => {});
-                return false; // prevent xterm from sending SIGINT
+                return false;
             }
-            return true; // no selection — let SIGINT go through
+            return true;
         }
 
-        // Ctrl+V: let the browser paste into xterm naturally via onData
-        // We just need to read clipboard and send it ourselves, since xterm's
-        // built-in paste doesn't always work in all browsers.
+        // Ctrl+V: read clipboard and send directly
         if (e.key === "v" || e.key === "V") {
+            ctrlVJustFired = true;
+            setTimeout(() => { ctrlVJustFired = false; }, 200);
             navigator.clipboard.readText().then(text => {
                 if (text && isTerminalRunning && socket) {
                     socket.emit("terminal_input", { data: text });
                 }
             }).catch(() => {});
-            return false; // prevent xterm from ALSO handling the paste (double-paste fix)
+            return false;
         }
 
         return true;
     });
 
-    // Send keystrokes to server.
-    // The custom key handler above already handles Ctrl+V by sending clipboard
-    // content directly, so we strip bracket-paste sequences from onData to
-    // prevent double-paste. But we must NOT use a stateful flag — if a start
-    // sequence arrives without a matching end (split across chunks), the flag
-    // stays true forever and kills all input.
+    // Send keystrokes and right-click paste to server.
+    // Right-click paste arrives as bracket-paste sequences — strip wrappers, send content.
+    // Ctrl+V paste is handled above; if ctrlVJustFired, skip bracket-paste to avoid double.
     terminal.onData((data) => {
-        // Strip bracket-paste sequences inline instead of using a stateful flag
-        const cleaned = data.replace(/\x1b\[200~/g, "").replace(/\x1b\[201~/g, "");
-        if (!cleaned) return; // was purely a paste sequence
+        if (!isTerminalRunning || !socket) return;
 
-        if (isTerminalRunning && socket) {
-            socket.emit("terminal_input", { data: cleaned });
+        const hasBracketPaste = data.includes("\x1b[200~") || data.includes("\x1b[201~");
+
+        if (hasBracketPaste) {
+            // Ctrl+V already sent this — skip to prevent double-paste
+            if (ctrlVJustFired) return;
+            // Right-click paste — strip wrappers and send
+            const cleaned = data.replace(/\x1b\[200~/g, "").replace(/\x1b\[201~/g, "");
+            if (cleaned) socket.emit("terminal_input", { data: cleaned });
+            return;
         }
+
+        socket.emit("terminal_input", { data });
     });
 
     // Handle resize
