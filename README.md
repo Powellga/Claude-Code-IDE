@@ -26,7 +26,10 @@ This is not a thin wrapper or a chat UI that calls an API. It manages real PTY p
 - **Settings** — Configurable Claude Code command, default project, and terminal font size
 - **Context Menus** — Right-click projects to rename, delete, set working directory, or pin; right-click sessions to rename, delete, or move to another project
 - **Import External Sessions** — Pull in any Claude Code session from outside the IDE by selecting from a list or pasting a UUID; creates a new project with the session immediately resumable
+- **Session UUID Display** — View and copy session UUIDs from the session viewer toolbar for use with `claude --resume` outside the IDE
 - **Auto-Generated CLAUDE.md** — New projects automatically get a CLAUDE.md with IDE-aware instructions (environment context, working directory, file conventions, guidelines)
+- **Clipboard Support** — Ctrl+C copies selected terminal text; Ctrl+V pastes without double-paste issues
+- **Kill Server** — Stop the IDE server from within the Settings modal when you need to restart
 - **Smart Defaults** — New projects auto-fill a dedicated working directory (`~/Claude-Code-IDE-Workspaces/<project-name>`)
 - **Tooltips** — Hover hints on every interactive element
 - **Dark Theme** — VS Code-inspired dark UI
@@ -204,6 +207,7 @@ claude-code-ide/
 - [x] Phase 8: Quick-resume, pin projects, file tree viewer, git diff integration
 - [x] Phase 9: Session move, set working directory, auto-fill workspace paths, file tree path display, git init
 - [x] Phase 10: Import external Claude Code sessions, auto-generated CLAUDE.md for new projects, file path prompt fixes
+- [x] Phase 11: Session UUID display with copy, Ctrl+C/V clipboard fix, kill server button
 
 ## How Is This Different from Claude Desktop?
 
