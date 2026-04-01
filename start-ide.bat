@@ -11,5 +11,11 @@ if %errorlevel% neq 0 (
 
 cd /d "%~dp0"
 call .venv\Scripts\activate
+
+:: Run backup before launching
+echo Running backup...
+python backup.py
+echo.
+
 start "" http://localhost:5050
 python app.py

@@ -5,3 +5,4 @@ data/projects/
 local.settings.json
 .env
 .claude/
+backups/

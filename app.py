@@ -756,40 +756,57 @@ def api_list_files(name):
     return jsonify({"path": wd, "tree": tree})
 
 
-@app.route("/api/projects/<name>/git-status", methods=["GET"])
-def api_git_status(name):
-    """Get git status and diff for the project's working directory."""
+def _run_git(args, cwd, timeout=5):
+    """Run a git command safely in a way that never hangs.
+
+    - stdin is /dev/null so git can never prompt for input
+    - GIT_TERMINAL_PROMPT=0 disables credential prompts
+    - creationflags prevents spawning a console window on Windows
+    - timeout kills the process if it takes too long
+    """
     import subprocess
+    env = os.environ.copy()
+    env["GIT_TERMINAL_PROMPT"] = "0"
 
-    wd = _get_project_working_dir(name)
-    if not os.path.isdir(wd):
-        return jsonify({"error": "Working directory not found"}), 404
+    kwargs = dict(
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        stdin=subprocess.DEVNULL,
+        env=env,
+    )
+    # On Windows, prevent git from spawning a visible console
+    if sys.platform == "win32":
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
 
-    # Don't scan home directory — it's never the intended project root
-    if os.path.normpath(wd) == os.path.normpath(str(Path.home())):
-        return jsonify({"error": "No working directory set for this project. Edit the project to set one.", "is_git": False, "no_workdir": True})
+    return subprocess.run(["git"] + args, **kwargs)
+
+
+def _collect_git_status(wd):
+    """Gather all git info for a working directory. Runs in a thread."""
+    import subprocess
 
     # Check if it's a git repo
     try:
-        subprocess.run(["git", "rev-parse", "--git-dir"], cwd=wd,
-                       capture_output=True, check=True, timeout=5)
+        _run_git(["rev-parse", "--git-dir"], wd, timeout=3)
     except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
-        return jsonify({"error": "Not a git repository", "is_git": False})
+        return {"error": "Not a git repository", "is_git": False}
+    except Exception:
+        return {"error": "Not a git repository", "is_git": False}
 
     result = {"is_git": True, "files": [], "diff": "", "branch": ""}
 
     # Get current branch
     try:
-        branch = subprocess.run(["git", "branch", "--show-current"], cwd=wd,
-                                capture_output=True, text=True, timeout=5)
+        branch = _run_git(["branch", "--show-current"], wd, timeout=3)
         result["branch"] = branch.stdout.strip()
     except Exception:
         pass
 
     # Get status (porcelain for easy parsing)
     try:
-        status = subprocess.run(["git", "status", "--porcelain"], cwd=wd,
-                                capture_output=True, text=True, timeout=10)
+        status = _run_git(["status", "--porcelain"], wd, timeout=5)
         for line in status.stdout.strip().split("\n"):
             if not line.strip():
                 continue
@@ -799,36 +816,60 @@ def api_git_status(name):
     except Exception:
         pass
 
-    # Get diff (staged + unstaged)
+    # Get diff (staged + unstaged) — limit output at the git level
     try:
-        diff = subprocess.run(["git", "diff", "HEAD"], cwd=wd,
-                              capture_output=True, text=True, timeout=15)
-        result["diff"] = diff.stdout[:100000]  # Cap at 100KB
+        diff = _run_git(["diff", "HEAD"], wd, timeout=8)
+        result["diff"] = diff.stdout[:100000]
     except Exception:
-        # Might fail if no commits yet, try just unstaged
         try:
-            diff = subprocess.run(["git", "diff"], cwd=wd,
-                                  capture_output=True, text=True, timeout=15)
+            diff = _run_git(["diff"], wd, timeout=8)
             result["diff"] = diff.stdout[:100000]
         except Exception:
             pass
 
     # Get recent log (last 5 commits)
     try:
-        log = subprocess.run(["git", "log", "--oneline", "-5"], cwd=wd,
-                             capture_output=True, text=True, timeout=5)
+        log = _run_git(["log", "--oneline", "-5"], wd, timeout=3)
         result["log"] = log.stdout.strip().split("\n") if log.stdout.strip() else []
     except Exception:
         result["log"] = []
 
-    return jsonify(result)
+    return result
+
+
+# Thread pool for git operations — prevents blocking the server
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+_git_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="git")
+
+
+@app.route("/api/projects/<name>/git-status", methods=["GET"])
+def api_git_status(name):
+    """Get git status and diff for the project's working directory.
+
+    Runs all git operations in a background thread so the server
+    stays responsive even if git hangs or takes a long time.
+    """
+    wd = _get_project_working_dir(name)
+    if not os.path.isdir(wd):
+        return jsonify({"error": "Working directory not found"}), 404
+
+    if os.path.normpath(wd) == os.path.normpath(str(Path.home())):
+        return jsonify({"error": "No working directory set for this project. Edit the project to set one.", "is_git": False, "no_workdir": True})
+
+    try:
+        future = _git_executor.submit(_collect_git_status, wd)
+        result = future.result(timeout=15)  # Hard cap: entire git check must finish in 15s
+        return jsonify(result)
+    except FuturesTimeout:
+        future.cancel()
+        return jsonify({"error": "Git operations timed out", "is_git": True, "files": [], "diff": "", "branch": "", "log": []}), 504
+    except Exception as e:
+        return jsonify({"error": f"Git error: {str(e)}", "is_git": True, "files": [], "diff": "", "branch": "", "log": []}), 500
 
 
 @app.route("/api/projects/<name>/git-init", methods=["POST"])
 def api_git_init(name):
     """Initialize a git repo in the project's working directory."""
-    import subprocess
-
     wd = _get_project_working_dir(name)
     if not os.path.isdir(wd):
         return jsonify({"error": "Working directory not found"}), 404
@@ -837,7 +878,7 @@ def api_git_init(name):
         return jsonify({"error": "Cannot initialize git in home directory. Set a working directory first."}), 400
 
     try:
-        subprocess.run(["git", "init"], cwd=wd, capture_output=True, check=True, timeout=10)
+        _run_git(["init"], wd, timeout=10)
         return jsonify({"status": "initialized", "path": wd})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
