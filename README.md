@@ -30,6 +30,8 @@ This is not a thin wrapper or a chat UI that calls an API. It manages real PTY p
 - **Auto-Generated CLAUDE.md** — New projects automatically get a CLAUDE.md with IDE-aware instructions (environment context, working directory, file conventions, guidelines)
 - **Clipboard Support** — Ctrl+C copies selected terminal text; Ctrl+V pastes without double-paste issues
 - **Kill Server** — Stop the IDE server from within the Settings modal when you need to restart
+- **Automatic Backups** — On every startup, zips project data locally (keeps 10 snapshots) and pushes to a private GitHub repo for off-site recovery
+- **Non-Blocking Git** — Git operations run in a thread pool with hard timeouts so the server never locks up
 - **Smart Defaults** — New projects auto-fill a dedicated working directory (`~/Claude-Code-IDE-Workspaces/<project-name>`)
 - **Tooltips** — Hover hints on every interactive element
 - **Dark Theme** — VS Code-inspired dark UI
@@ -154,6 +156,8 @@ Everything runs locally. No cloud services, no databases, no containers. The bro
 ```
 claude-code-ide/
 ├── app.py              # Flask server, WebSocket handlers, PTY management, REST API
+├── backup.py           # Backup system (local zips + GitHub push, restore CLI)
+├── start-ide.bat       # Launcher (admin elevation, backup on startup, launch server)
 ├── requirements.txt    # Python dependencies (flask, flask-socketio, pywinpty, pyte)
 ├── templates/
 │   └── index.html      # Single-page app layout (tabs, modals, panels)
@@ -162,6 +166,7 @@ claude-code-ide/
 │   │   └── style.css   # Dark theme (CSS custom properties, no preprocessor)
 │   └── js/
 │       └── app.js      # Frontend logic (vanilla JS, no framework)
+├── backups/            # Local zip snapshots (auto-pruned, last 10 kept)
 └── data/
     ├── settings.json   # IDE settings (persisted across restarts)
     └── projects/       # Project configs + session JSON files
@@ -208,6 +213,7 @@ claude-code-ide/
 - [x] Phase 9: Session move, set working directory, auto-fill workspace paths, file tree path display, git init
 - [x] Phase 10: Import external Claude Code sessions, auto-generated CLAUDE.md for new projects, file path prompt fixes
 - [x] Phase 11: Session UUID display with copy, Ctrl+C/V clipboard fix, kill server button
+- [x] Phase 12: Automatic backup system (local zips + GitHub push), non-blocking git operations via thread pool
 
 ## How Is This Different from Claude Desktop?
 
