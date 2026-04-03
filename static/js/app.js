@@ -372,6 +372,14 @@ function initUI() {
     // File tree
     document.getElementById("btn-toggle-filetree").addEventListener("click", toggleFileTree);
     document.getElementById("btn-refresh-filetree").addEventListener("click", loadFileTree);
+    document.getElementById("btn-open-workdir").addEventListener("click", () => {
+        if (!activeProject) { console.warn("open-workdir: no active project"); return; }
+        console.log("open-workdir: requesting for", activeProject);
+        fetch(`/api/projects/${activeProject}/open-workdir`, { method: "POST" })
+            .then(r => r.json())
+            .then(d => console.log("open-workdir response:", d))
+            .catch(e => console.error("open-workdir error:", e));
+    });
 
     // Git diff
     document.getElementById("btn-gitdiff-refresh").addEventListener("click", loadGitStatus);

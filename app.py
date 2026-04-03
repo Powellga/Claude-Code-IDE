@@ -953,6 +953,30 @@ def api_get_workdir(name):
     return jsonify({"working_directory": meta.get("working_directory", "")})
 
 
+@app.route("/api/projects/<name>/open-workdir", methods=["POST"])
+def api_open_workdir(name):
+    """Open the project working directory in the system file explorer."""
+    meta_path = PROJECTS_DIR / name / "project.json"
+    if not meta_path.exists():
+        return jsonify({"error": "Project not found"}), 404
+    with open(meta_path) as f:
+        meta = json.load(f)
+    wd = meta.get("working_directory", "")
+    if not wd or not os.path.isdir(wd):
+        return jsonify({"error": "Working directory not found"}), 404
+    try:
+        import subprocess as _sp
+        if sys.platform == "win32":
+            _sp.Popen(f'explorer "{wd}"', shell=True)
+        elif sys.platform == "darwin":
+            _sp.Popen(["open", wd])
+        else:
+            _sp.Popen(["xdg-open", wd])
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/projects/<name>/workdir", methods=["PUT"])
 def api_set_workdir(name):
     """Set the working directory for a project."""
