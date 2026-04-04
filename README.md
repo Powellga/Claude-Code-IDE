@@ -94,7 +94,7 @@ pip install pywinpty
 python app.py
 ```
 
-Then open **http://localhost:5000** in your browser.
+Then open **http://localhost:5050** in your browser.
 
 **Note:** The IDE automatically requests admin privileges on startup.
 If you see a UAC prompt, click Yes — this ensures all Claude Code
@@ -127,7 +127,7 @@ sessions have the elevated access needed for system-level tasks.
 ## Architecture
 
 ```
-Browser (localhost:5000)
+Browser (localhost:5050)
     |
     v  WebSocket (Socket.IO) + REST API
     |
