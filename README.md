@@ -28,6 +28,7 @@ This is not a thin wrapper or a chat UI that calls an API. It manages real PTY p
 - **Import External Sessions** — Pull in any Claude Code session from outside the IDE by selecting from a list or pasting a UUID; creates a new project with the session immediately resumable
 - **Session UUID Display** — View and copy session UUIDs from the session viewer toolbar for use with `claude --resume` outside the IDE
 - **Auto-Generated CLAUDE.md** — New projects get a minimal CLAUDE.md with project name, description, and working directory (IDE-level instructions live in the global `~/.claude/CLAUDE.md`)
+- **Permission Mode** — Status bar dropdown below the terminal lets you switch between Ask Permissions, Auto Accept Edits, Plan Mode, and Bypass Permissions before starting or resuming a session
 - **Open in Explorer** — Click the folder icon in the file tree header to open the project's working directory in your system file manager
 - **Clipboard Support** — Ctrl+C copies selected terminal text; Ctrl+V pastes without double-paste issues
 - **Kill Server** — Stop the IDE server from within the Settings modal when you need to restart
@@ -216,6 +217,7 @@ claude-code-ide/
 - [x] Phase 11: Session UUID display with copy, Ctrl+C/V clipboard fix, kill server button
 - [x] Phase 12: Automatic backup system (local zips + GitHub push), non-blocking git operations via thread pool
 - [x] Phase 13: Minimal CLAUDE.md template, open-in-Explorer button, fix resumed sessions always using project working directory
+- [x] Phase 14: Permission mode status bar (ask permissions, auto accept edits, plan mode, bypass permissions), fix session resume using session's original working directory
 
 ## How Is This Different from Claude Desktop?
 

@@ -1388,11 +1388,24 @@ def on_disconnect():
         save_session(record, record.get("project"))
 
 
+def _permission_mode_flags(mode):
+    """Map a permission mode name to Claude Code CLI flags."""
+    if mode == "autoAcceptEdits":
+        return " --allowedTools Edit --allowedTools Write --allowedTools NotebookEdit"
+    elif mode == "planMode":
+        return " --mode plan"
+    elif mode == "bypassPermissions":
+        return " --dangerously-skip-permissions"
+    # "askPermissions" or default: no extra flags
+    return ""
+
+
 @socketio.on("start_terminal")
 def on_start_terminal(data):
     """Start a new Claude Code terminal session."""
     sid = request.sid
     project = data.get("project")
+    permission_mode = data.get("permission_mode", "askPermissions")
     project_path = None
 
     if project:
@@ -1406,7 +1419,7 @@ def on_start_terminal(data):
 
     # Generate a Claude session ID so we can resume later via claude --resume
     claude_session_id = str(uuid.uuid4())
-    cmd = f"{CLAUDE_CMD} --session-id {claude_session_id}"
+    cmd = f"{CLAUDE_CMD} --session-id {claude_session_id}{_permission_mode_flags(permission_mode)}"
 
     success = _spawn_terminal(sid, project_path, cmd=cmd, claude_session_id=claude_session_id)
     if success:
@@ -1426,6 +1439,8 @@ def on_resume_session(data):
     sid = request.sid
     project = data.get("project")
     claude_session_id = data.get("claude_session_id", "")
+    permission_mode = data.get("permission_mode", "askPermissions")
+    session_wd = data.get("working_directory", "")
     project_path = None
 
     # Clean up session ID — strip "claude --resume" prefix if present
@@ -1436,8 +1451,11 @@ def on_resume_session(data):
         emit("terminal_error", {"message": "No Claude session ID found for this session"})
         return
 
-    # Always use the project's configured working directory
-    if project:
+    # Prefer the session's original working directory (where Claude stored the
+    # conversation), then fall back to the project's configured directory.
+    if session_wd and os.path.isdir(session_wd):
+        project_path = session_wd
+    elif project:
         project_meta_file = PROJECTS_DIR / project / "project.json"
         if project_meta_file.exists():
             with open(project_meta_file) as f:
@@ -1446,7 +1464,7 @@ def on_resume_session(data):
                 if wd and os.path.isdir(wd):
                     project_path = wd
 
-    cmd = f"{CLAUDE_CMD} --resume {claude_session_id}"
+    cmd = f"{CLAUDE_CMD} --resume {claude_session_id}{_permission_mode_flags(permission_mode)}"
     success = _spawn_terminal(sid, project_path, cmd=cmd, claude_session_id=claude_session_id)
     if success:
         active_terminals[sid]["record"]["project"] = project

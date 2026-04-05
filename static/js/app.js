@@ -18,6 +18,7 @@ let claudeMdDirty = false;
 let lastClaudeSessionId = null;
 let lastSessionWorkingDir = null;
 let wasRunningBeforeDisconnect = false;
+let currentPermissionMode = "autoAcceptEdits";
 
 // ─── Initialize ────────────────────────────────────────────────────────────
 
@@ -52,6 +53,7 @@ function initSocket() {
                 project: activeProject,
                 claude_session_id: lastClaudeSessionId,
                 working_directory: lastSessionWorkingDir || "",
+                permission_mode: currentPermissionMode,
             });
         }
     });
@@ -235,7 +237,7 @@ function startTerminal() {
     terminal.clear();
     terminal.writeln("\x1b[90m  Starting Claude Code...\x1b[0m\r\n");
 
-    socket.emit("start_terminal", { project: activeProject });
+    socket.emit("start_terminal", { project: activeProject, permission_mode: currentPermissionMode });
 }
 
 async function stopTerminal() {
@@ -327,6 +329,60 @@ function showConnectionStatus(state) {
     }
 }
 
+// ─── Permission Mode ──────────────────────────────────────────────────────
+
+const PERMISSION_MODES = {
+    askPermissions:    { icon: "\u270E", label: "Ask permissions" },
+    autoAcceptEdits:   { icon: "</>",    label: "Auto accept edits" },
+    planMode:          { icon: "\u2699", label: "Plan mode" },
+    bypassPermissions: { icon: "\u26A0", label: "Bypass permissions" },
+};
+
+function initPermissionMode() {
+    const btn = document.getElementById("btn-permission-mode");
+    const menu = document.getElementById("permission-mode-menu");
+
+    btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        menu.style.display = menu.style.display === "none" ? "block" : "none";
+    });
+
+    document.querySelectorAll(".perm-option").forEach(opt => {
+        opt.addEventListener("click", () => {
+            const mode = opt.dataset.mode;
+            setPermissionMode(mode);
+            menu.style.display = "none";
+        });
+    });
+
+    // Close menu when clicking outside
+    document.addEventListener("click", () => {
+        menu.style.display = "none";
+    });
+    menu.addEventListener("click", (e) => e.stopPropagation());
+}
+
+function setPermissionMode(mode) {
+    currentPermissionMode = mode;
+    const info = PERMISSION_MODES[mode];
+    if (!info) return;
+
+    document.getElementById("permission-mode-icon").textContent = info.icon;
+    document.getElementById("permission-mode-label").textContent = info.label;
+
+    // Update checkmarks
+    document.querySelectorAll(".perm-option").forEach(opt => {
+        const check = opt.querySelector(".perm-option-check");
+        if (opt.dataset.mode === mode) {
+            opt.classList.add("selected");
+            check.textContent = "\u2713";
+        } else {
+            opt.classList.remove("selected");
+            check.textContent = "";
+        }
+    });
+}
+
 // ─── UI Initialization ────────────────────────────────────────────────────
 
 function initUI() {
@@ -337,6 +393,9 @@ function initUI() {
     document.getElementById("btn-resume").addEventListener("click", resumeSession);
     document.getElementById("btn-copy-uuid").addEventListener("click", copySessionUuid);
     document.getElementById("btn-confirm-save").addEventListener("click", confirmStopAndSave);
+
+    // Permission mode dropdown
+    initPermissionMode();
 
     // Settings
     document.getElementById("btn-settings").addEventListener("click", openSettings);
@@ -826,6 +885,7 @@ async function resumeSession() {
             project: project,
             claude_session_id: session.claude_session_id,
             working_directory: session.working_directory || "",
+            permission_mode: currentPermissionMode,
         });
     } catch (e) {
         console.error("Failed to resume session:", e);
@@ -1619,6 +1679,7 @@ async function quickResume(projectName) {
             project: projectName,
             claude_session_id: latest.claude_session_id,
             working_directory: latest.working_directory || "",
+            permission_mode: currentPermissionMode,
         });
     } catch (e) {
         console.error("Quick resume failed:", e);

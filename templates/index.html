@@ -116,6 +116,53 @@
                     </div>
                     <div id="terminal-container"></div>
                 </div>
+                <!-- Permission Mode Status Bar -->
+                <div id="terminal-statusbar">
+                    <div class="statusbar-left"></div>
+                    <div class="statusbar-right">
+                        <div id="permission-mode-wrapper">
+                            <button id="btn-permission-mode" class="statusbar-btn" title="Change permission mode for Claude Code sessions">
+                                <span id="permission-mode-icon">&lt;/&gt;</span>
+                                <span id="permission-mode-label">Auto accept edits</span>
+                                <span class="dropdown-chevron">&#9662;</span>
+                            </button>
+                            <div id="permission-mode-menu" style="display:none;">
+                                <div class="perm-option" data-mode="askPermissions" title="Always ask before making changes">
+                                    <span class="perm-option-icon">&#9998;</span>
+                                    <div class="perm-option-text">
+                                        <div class="perm-option-name">Ask permissions</div>
+                                        <div class="perm-option-desc">Always ask before making changes</div>
+                                    </div>
+                                    <span class="perm-option-check"></span>
+                                </div>
+                                <div class="perm-option selected" data-mode="autoAcceptEdits" title="Automatically accept all file edits">
+                                    <span class="perm-option-icon">&lt;/&gt;</span>
+                                    <div class="perm-option-text">
+                                        <div class="perm-option-name">Auto accept edits</div>
+                                        <div class="perm-option-desc">Automatically accept all file edits</div>
+                                    </div>
+                                    <span class="perm-option-check">&#10003;</span>
+                                </div>
+                                <div class="perm-option" data-mode="planMode" title="Create a plan before making changes">
+                                    <span class="perm-option-icon">&#9881;</span>
+                                    <div class="perm-option-text">
+                                        <div class="perm-option-name">Plan mode</div>
+                                        <div class="perm-option-desc">Create a plan before making changes</div>
+                                    </div>
+                                    <span class="perm-option-check"></span>
+                                </div>
+                                <div class="perm-option" data-mode="bypassPermissions" title="Accepts all permissions">
+                                    <span class="perm-option-icon">&#9888;</span>
+                                    <div class="perm-option-text">
+                                        <div class="perm-option-name">Bypass permissions</div>
+                                        <div class="perm-option-desc">Accepts all permissions</div>
+                                    </div>
+                                    <span class="perm-option-check"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- Session Viewer Panel -->
