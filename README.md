@@ -248,9 +248,11 @@ Claude Desktop is Anthropic's official desktop app. It's a conversation tool —
 
 They solve different problems. Claude Desktop is a chat app. This is an engineering workbench.
 
-## Companion Project
+## Companion Projects
 
 **[Browser & File MCP Server](https://github.com/Powellga/Claude_Browser_MCP_Server)** — 25-tool MCP server that gives Claude Code browser automation (Playwright) and file processing (Excel, Word, PowerPoint, CSV, images). Designed to work with this IDE but usable with any MCP client.
+
+**[Gmail MCP Server](https://github.com/Powellga/Claude_Gmail_MCP_Server)** — 7-tool MCP server that gives Claude Code read and send access to a Gmail account via Google's official Gmail API. OAuth-based, credentials stay local. Pairs naturally with this IDE when you want Claude to read, search, send, reply, and draft email without leaving the terminal.
 
 ## License
 
