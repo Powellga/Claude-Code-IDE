@@ -49,7 +49,15 @@
         <div id="sidebar">
             <div class="sidebar-header">
                 <span>PROJECTS</span>
-                <button id="btn-new-project" class="sidebar-action" title="Create a new project to organize your Claude Code sessions">+</button>
+                <div class="sidebar-header-group">
+                    <button id="btn-work-filter" class="sidebar-action" title="Show only work-related projects">⚑</button>
+                    <button id="btn-new-project" class="sidebar-action" title="Create a new project to organize your Claude Code sessions">+</button>
+                </div>
+            </div>
+            <div class="project-col-header">
+                <span class="col-spacer"></span>
+                <span class="col-work" title="Work related">Work</span>
+                <span class="col-count"></span>
             </div>
             <div id="project-list" class="sidebar-list">
                 <!-- Populated by JS -->

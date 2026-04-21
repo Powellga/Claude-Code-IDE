@@ -26,7 +26,7 @@
     --danger: #f44747;
     --info: #569cd6;
 
-    --sidebar-width: 260px;
+    --sidebar-width: 390px;
     --titlebar-height: 36px;
     --tab-height: 36px;
     --toolbar-height: 40px;
@@ -108,7 +108,7 @@ html, body {
 #sidebar {
     width: var(--sidebar-width);
     min-width: 180px;
-    max-width: 400px;
+    max-width: 600px;
     background: var(--bg-secondary);
     border-right: 1px solid var(--border);
     display: flex;
@@ -150,6 +150,51 @@ html, body {
     transition: all var(--transition);
 }
 .sidebar-action:hover { background: var(--bg-hover); color: var(--text-bright); }
+.sidebar-action.active { background: var(--accent-dim); color: var(--text-bright); }
+
+.sidebar-header-group {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+/* Column header row above the project list */
+.project-col-header {
+    display: flex;
+    align-items: center;
+    padding: 2px 16px 4px;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-muted);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+}
+.project-col-header .col-spacer { flex: 1; }
+.project-col-header .col-work {
+    width: 44px;
+    text-align: center;
+}
+.project-col-header .col-count {
+    width: 32px;
+    text-align: right;
+}
+
+/* Work-related checkbox inside each project row */
+.work-checkbox {
+    width: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+.work-checkbox input[type="checkbox"] {
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+    accent-color: var(--accent);
+    margin: 0;
+}
 
 .sidebar-list {
     flex: 1;

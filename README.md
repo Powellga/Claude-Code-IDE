@@ -19,6 +19,8 @@ This is not a thin wrapper or a chat UI that calls an API. It manages real PTY p
 - **Conversation Import** — Paste text from claude.ai, ChatGPT, email, or any source into a modal; saved as a file and Claude picks up where it left off
 - **Quick-Resume** — Hover any project to one-click resume the most recent session
 - **Pin Projects** — Right-click to pin frequently used projects to the top of the sidebar
+- **Work-Related Filter** — Per-project "Work" checkbox in the sidebar with a header toggle (⚑) to filter the list to work projects only
+- **Most-Recent-First Sort** — Projects are ordered by the timestamp of their most recent session (pinned projects still float to the top)
 - **File Tree** — Toggle a file explorer panel alongside the terminal showing the project's working directory with path display; click any file to ask Claude to read it
 - **Git Integration** — Dedicated Git tab showing branch, changed files, recent commits, and full color-highlighted diffs; initialize new repos from the UI
 - **Timestamps** — Projects and sessions display their creation date and time in the sidebar
@@ -218,6 +220,7 @@ claude-code-ide/
 - [x] Phase 12: Automatic backup system (local zips + GitHub push), non-blocking git operations via thread pool
 - [x] Phase 13: Minimal CLAUDE.md template, open-in-Explorer button, fix resumed sessions always using project working directory
 - [x] Phase 14: Permission mode status bar (ask permissions, auto accept edits, plan mode, bypass permissions), fix session resume using session's original working directory
+- [x] Phase 15: Wider sidebar, work-related project flag with filter toggle, project list sorted by most recent session
 
 ## How Is This Different from Claude Desktop?
 

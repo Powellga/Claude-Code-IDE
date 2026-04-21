@@ -385,17 +385,23 @@ def list_projects():
                 with open(meta_file, "r") as f:
                     meta = json.load(f)
 
-            session_count = len(list((d / "sessions").glob("*.json"))) if (d / "sessions").exists() else 0
+            sessions_dir = d / "sessions"
+            session_files = list(sessions_dir.glob("*.json")) if sessions_dir.exists() else []
+            session_count = len(session_files)
+            last_session_mtime = max((f.stat().st_mtime for f in session_files), default=0.0)
+
             projects.append({
                 "name": d.name,
                 "display_name": meta.get("display_name", d.name),
                 "created": meta.get("created", ""),
                 "description": meta.get("description", ""),
                 "pinned": meta.get("pinned", False),
+                "work_related": meta.get("work_related", False),
                 "session_count": session_count,
+                "last_session_mtime": last_session_mtime,
             })
-    # Sort pinned projects to the top
-    projects.sort(key=lambda p: (not p["pinned"], p["name"]))
+    # Pinned first, then projects with most recent sessions on top, then name.
+    projects.sort(key=lambda p: (not p["pinned"], -p["last_session_mtime"], p["name"].lower()))
     return projects
 
 
@@ -919,6 +925,24 @@ def api_pin_project(name):
     with open(meta_path) as f:
         meta = json.load(f)
     meta["pinned"] = not meta.get("pinned", False)
+    with open(meta_path, "w") as f:
+        json.dump(meta, f, indent=2)
+    return jsonify(meta)
+
+
+@app.route("/api/projects/<name>/work-related", methods=["POST"])
+def api_toggle_work_related(name):
+    """Set or toggle the work_related flag on a project."""
+    meta_path = PROJECTS_DIR / name / "project.json"
+    if not meta_path.exists():
+        return jsonify({"error": "Project not found"}), 404
+    with open(meta_path) as f:
+        meta = json.load(f)
+    data = request.json or {}
+    if "work_related" in data:
+        meta["work_related"] = bool(data["work_related"])
+    else:
+        meta["work_related"] = not meta.get("work_related", False)
     with open(meta_path, "w") as f:
         json.dump(meta, f, indent=2)
     return jsonify(meta)

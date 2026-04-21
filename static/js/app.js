@@ -19,6 +19,8 @@ let lastClaudeSessionId = null;
 let lastSessionWorkingDir = null;
 let wasRunningBeforeDisconnect = false;
 let currentPermissionMode = "autoAcceptEdits";
+let showWorkOnly = false;
+let cachedProjects = [];
 
 // ─── Initialize ────────────────────────────────────────────────────────────
 
@@ -490,6 +492,13 @@ function initUI() {
         });
     });
 
+    // Work-related filter toggle
+    document.getElementById("btn-work-filter").addEventListener("click", () => {
+        showWorkOnly = !showWorkOnly;
+        document.getElementById("btn-work-filter").classList.toggle("active", showWorkOnly);
+        renderProjectList(cachedProjects);
+    });
+
     // New project
     document.getElementById("btn-new-project").addEventListener("click", () => {
         document.getElementById("new-project-name").value = "";
@@ -593,6 +602,7 @@ async function loadProjects() {
     try {
         const resp = await fetch("/api/projects");
         const projects = await resp.json();
+        cachedProjects = projects;
         renderProjectList(projects);
     } catch (e) {
         console.error("Failed to load projects:", e);
@@ -601,6 +611,8 @@ async function loadProjects() {
 
 function renderProjectList(projects) {
     const list = document.getElementById("project-list");
+    const visible = showWorkOnly ? projects.filter(p => p.work_related) : projects;
+
     if (projects.length === 0) {
         list.innerHTML = `
             <div style="padding: 16px; color: var(--text-muted); font-size: 12px; text-align: center;">
@@ -608,11 +620,19 @@ function renderProjectList(projects) {
             </div>`;
         return;
     }
+    if (visible.length === 0) {
+        list.innerHTML = `
+            <div style="padding: 16px; color: var(--text-muted); font-size: 12px; text-align: center;">
+                No work-related projects yet.<br>Check the Work box on any project.
+            </div>`;
+        return;
+    }
 
-    list.innerHTML = projects.map(p => {
-        const created = p.created ? new Date(p.created) : null;
-        const dateStr = created ? created.toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
+    list.innerHTML = visible.map(p => {
+        const lastDate = p.last_session_mtime ? new Date(p.last_session_mtime * 1000) : (p.created ? new Date(p.created) : null);
+        const dateStr = lastDate ? lastDate.toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
         const pinIcon = p.pinned ? "📌" : "📁";
+        const checked = p.work_related ? "checked" : "";
 
         return `
         <div class="sidebar-item ${activeProject === p.name ? 'active' : ''}"
@@ -621,6 +641,9 @@ function renderProjectList(projects) {
             <span class="item-icon">${pinIcon}</span>
             <span class="item-label">${escapeHtml(p.display_name || p.name)}</span>
             <span class="item-meta">${dateStr}</span>
+            <label class="work-checkbox" title="Mark as work-related">
+                <input type="checkbox" data-work-project="${escapeAttr(p.name)}" ${checked}>
+            </label>
             ${p.session_count > 0 ? `<button class="quick-resume-btn" data-qr-project="${escapeAttr(p.name)}" title="Quick-resume last session">▶</button>` : ''}
             <span class="item-count">${p.session_count}</span>
         </div>`;
@@ -631,6 +654,19 @@ function renderProjectList(projects) {
         el.addEventListener("contextmenu", (e) => onProjectContextMenu(e, el.dataset.project));
     });
 
+    // Work-related checkboxes
+    list.querySelectorAll('input[data-work-project]').forEach(cb => {
+        cb.addEventListener("click", (e) => e.stopPropagation());
+        cb.addEventListener("change", async (e) => {
+            e.stopPropagation();
+            await toggleWorkRelated(cb.dataset.workProject, cb.checked);
+        });
+    });
+    // Prevent row click when clicking the label wrapper
+    list.querySelectorAll(".work-checkbox").forEach(lbl => {
+        lbl.addEventListener("click", (e) => e.stopPropagation());
+    });
+
     // Quick-resume buttons
     list.querySelectorAll(".quick-resume-btn").forEach(btn => {
         btn.addEventListener("click", (e) => {
@@ -638,6 +674,23 @@ function renderProjectList(projects) {
             quickResume(btn.dataset.qrProject);
         });
     });
+}
+
+async function toggleWorkRelated(project, value) {
+    try {
+        const resp = await fetch(`/api/projects/${encodeURIComponent(project)}/work-related`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ work_related: value }),
+        });
+        if (!resp.ok) throw new Error(await resp.text());
+        const proj = cachedProjects.find(p => p.name === project);
+        if (proj) proj.work_related = value;
+        if (showWorkOnly) renderProjectList(cachedProjects);
+    } catch (e) {
+        console.error("Failed to toggle work-related:", e);
+        await loadProjects();
+    }
 }
 
 async function selectProject(name) {
