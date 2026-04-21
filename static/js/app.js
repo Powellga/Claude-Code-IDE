@@ -641,11 +641,11 @@ function renderProjectList(projects) {
             <span class="item-icon">${pinIcon}</span>
             <span class="item-label">${escapeHtml(p.display_name || p.name)}</span>
             <span class="item-meta">${dateStr}</span>
+            ${p.session_count > 0 ? `<button class="quick-resume-btn" data-qr-project="${escapeAttr(p.name)}" title="Quick-resume last session">▶</button>` : ''}
+            <span class="item-count">${p.session_count}</span>
             <label class="work-checkbox" title="Mark as work-related">
                 <input type="checkbox" data-work-project="${escapeAttr(p.name)}" ${checked}>
             </label>
-            ${p.session_count > 0 ? `<button class="quick-resume-btn" data-qr-project="${escapeAttr(p.name)}" title="Quick-resume last session">▶</button>` : ''}
-            <span class="item-count">${p.session_count}</span>
         </div>`;
     }).join("");
 

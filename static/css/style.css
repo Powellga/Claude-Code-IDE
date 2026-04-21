@@ -174,15 +174,13 @@ html, body {
 .project-col-header .col-work {
     width: 44px;
     text-align: center;
-}
-.project-col-header .col-count {
-    width: 32px;
-    text-align: right;
+    flex-shrink: 0;
 }
 
-/* Work-related checkbox inside each project row */
+/* Work-related checkbox inside each project row (last element, right-aligned) */
 .work-checkbox {
     width: 44px;
+    height: 100%;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -194,6 +192,7 @@ html, body {
     cursor: pointer;
     accent-color: var(--accent);
     margin: 0;
+    display: block;
 }
 
 .sidebar-list {
