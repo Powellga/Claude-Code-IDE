@@ -110,6 +110,7 @@ data/
 - **Always use `encoding="utf-8"`** when reading/writing session JSON files. Raw PTY output contains escape sequences that crash Python's default cp1252 codec.
 - **Admin elevation is required** - pywinpty needs it to properly spawn Claude Code. The ConPTY module (`conpty_process.py`) exists because pywinpty doesn't reliably pass admin tokens to child processes.
 - **Session resume depends on working directory** - Claude Code's `--resume <uuid>` must run from the same directory the session was originally started in. The `working_directory` field in session JSON tracks this.
+- **Save destination derived from workdir, not UI** - `save_session()` calls `_project_for_workdir()` to find the project whose `working_directory` matches the session record's, and writes there regardless of the project name the UI passed in. This prevents sessions from being filed under whichever project happened to be selected in the sidebar at save time. The frontend also blocks `selectProject()` while a terminal is running (with a Quick-Resume bypass) as a defense-in-depth UX guardrail.
 
 ## Environment Variables
 

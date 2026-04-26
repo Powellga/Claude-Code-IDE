@@ -22,6 +22,7 @@ let currentPermissionMode = "autoAcceptEdits";
 let showWorkOnly = false;
 let cachedProjects = [];
 let projectSearchQuery = "";
+let suppressProjectSwitchGuard = false;
 
 // ─── Initialize ────────────────────────────────────────────────────────────
 
@@ -764,6 +765,10 @@ async function toggleWorkRelated(project, value) {
 }
 
 async function selectProject(name) {
+    if (!suppressProjectSwitchGuard && isTerminalRunning && activeProject && name !== activeProject) {
+        alert("A terminal session is currently running.\n\nClose and save this session before opening another project.\n\nUse 'Stop & Save' or 'Discard' in the terminal toolbar.");
+        return;
+    }
     activeProject = name;
     document.getElementById("active-project-label").textContent = name;
 
@@ -1933,8 +1938,13 @@ async function quickResume(projectName) {
             await new Promise(resolve => setTimeout(resolve, 500));
         }
 
-        // Select the project
-        await selectProject(projectName);
+        // Select the project (bypass the running-terminal guard since the user already confirmed)
+        suppressProjectSwitchGuard = true;
+        try {
+            await selectProject(projectName);
+        } finally {
+            suppressProjectSwitchGuard = false;
+        }
 
         // Switch to terminal tab
         document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));

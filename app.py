@@ -279,8 +279,42 @@ def _kill_terminal(sid):
 
 # ─── Session Persistence ───────────────────────────────────────────────────
 
+def _project_for_workdir(working_directory):
+    """Return the project folder name whose working_directory matches, or None."""
+    if not working_directory:
+        return None
+    target = os.path.normcase(os.path.normpath(working_directory)).rstrip("\\/")
+    for d in PROJECTS_DIR.iterdir():
+        if not d.is_dir():
+            continue
+        meta_path = d / "project.json"
+        if not meta_path.exists():
+            continue
+        try:
+            with open(meta_path) as f:
+                meta = json.load(f)
+        except Exception:
+            continue
+        wd = meta.get("working_directory", "")
+        if not wd:
+            continue
+        if os.path.normcase(os.path.normpath(wd)).rstrip("\\/") == target:
+            return d.name
+    return None
+
+
 def save_session(record, project_name=None):
-    """Save a session record to disk."""
+    """Save a session record to disk.
+
+    The destination project is determined by the session's working_directory
+    when it matches a project, regardless of what the UI passed in. This
+    prevents sessions from being filed under whichever project happened to
+    be selected in the sidebar at save time.
+    """
+    correct = _project_for_workdir(record.get("working_directory", ""))
+    if correct and correct != project_name:
+        print(f"[IDE] save_session: routing to '{correct}' based on working_directory (UI passed '{project_name}')")
+        project_name = correct
     if project_name:
         session_dir = PROJECTS_DIR / project_name / "sessions"
     else:

@@ -225,6 +225,7 @@ claude-code-ide/
 - [x] Phase 14: Permission mode status bar (ask permissions, auto accept edits, plan mode, bypass permissions), fix session resume using session's original working directory
 - [x] Phase 15: Wider sidebar, work-related project flag with right-aligned checkbox column and filter toggle, project list sorted by most recent session
 - [x] Phase 16: Project search bar, per-project live URLs with tab-bar navigate button (single URL or dropdown), Copy UUID context menu on sessions
+- [x] Phase 17: Sessions auto-routed to the correct project on save based on the session's working directory (no more drift from sidebar selection); project-switch blocked while a terminal is running
 
 ## How Is This Different from Claude Desktop?
 
