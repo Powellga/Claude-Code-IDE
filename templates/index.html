@@ -54,6 +54,10 @@
                     <button id="btn-new-project" class="sidebar-action" title="Create a new project to organize your Claude Code sessions">+</button>
                 </div>
             </div>
+            <div class="project-search-row">
+                <input id="project-search" type="text" placeholder="Search projects..." title="Filter projects by name" autocomplete="off">
+                <button id="btn-clear-project-search" type="button" title="Clear search" style="display:none;">×</button>
+            </div>
             <div class="project-col-header">
                 <span class="col-spacer"></span>
                 <span class="col-work" title="Work related">Work</span>
@@ -98,6 +102,10 @@
                 <div class="tab" data-tab="gitdiff" title="View git status and diffs for the project">
                     <span class="tab-icon">🔀</span>
                     <span class="tab-label">Git</span>
+                </div>
+                <div id="navigate-wrapper" style="display:none;position:relative;">
+                    <button id="btn-navigate" class="tab-action-btn" title="Open this project's live URL">🌐</button>
+                    <div id="navigate-menu" style="display:none;"></div>
                 </div>
             </div>
 
@@ -354,6 +362,24 @@
                 <label>Session Summary</label>
                 <input type="text" id="import-session-summary" class="modal-input" placeholder="Brief description of this session" title="Shown in the session list">
                 <button id="btn-confirm-import-session" class="toolbar-btn primary" style="margin-top:12px;width:100%;">Import Session</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ─── Project URLs Modal ───────────────────────────────── -->
+    <div id="urls-modal" class="modal" style="display:none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span id="urls-modal-title">Project URLs</span>
+                <button class="modal-close" onclick="closeModal('urls-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">
+                    Add one or more URLs where this project is live (production, staging, localhost, etc.). A globe icon will appear in the tab bar to open them.
+                </div>
+                <div id="urls-list"></div>
+                <button id="btn-add-url" class="toolbar-btn" style="margin-top:8px;">+ Add URL</button>
+                <button id="btn-save-urls" class="toolbar-btn primary" style="margin-top:12px;width:100%;">Save URLs</button>
             </div>
         </div>
     </div>

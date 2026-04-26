@@ -21,6 +21,7 @@ let wasRunningBeforeDisconnect = false;
 let currentPermissionMode = "autoAcceptEdits";
 let showWorkOnly = false;
 let cachedProjects = [];
+let projectSearchQuery = "";
 
 // ─── Initialize ────────────────────────────────────────────────────────────
 
@@ -492,10 +493,70 @@ function initUI() {
         });
     });
 
+    // Navigate (live URL) button
+    document.getElementById("btn-navigate").addEventListener("click", (e) => {
+        e.stopPropagation();
+        toggleNavigateMenu();
+    });
+
+    // URLs modal: Add URL row
+    document.getElementById("btn-add-url").addEventListener("click", () => {
+        const list = document.getElementById("urls-list");
+        // If currently empty placeholder, clear it first
+        if (!list.querySelector(".url-row")) list.innerHTML = "";
+        const div = document.createElement("div");
+        div.className = "url-row";
+        div.innerHTML = `
+            <input type="text" class="url-label" placeholder="Label (e.g. Production)">
+            <input type="text" class="url-value" placeholder="https://example.com">
+            <button type="button" class="url-remove" title="Remove">&times;</button>`;
+        div.querySelector(".url-remove").addEventListener("click", () => {
+            div.remove();
+            if (!list.querySelector(".url-row")) renderUrlsModal([]);
+        });
+        list.appendChild(div);
+        div.querySelector(".url-label").focus();
+    });
+
+    // URLs modal: Save
+    document.getElementById("btn-save-urls").addEventListener("click", saveUrlsModal);
+
+    // Close navigate menu on outside click
+    document.addEventListener("click", (e) => {
+        const wrap = document.getElementById("navigate-wrapper");
+        if (wrap && !wrap.contains(e.target)) {
+            document.getElementById("navigate-menu").style.display = "none";
+        }
+    });
+
     // Work-related filter toggle
     document.getElementById("btn-work-filter").addEventListener("click", () => {
         showWorkOnly = !showWorkOnly;
         document.getElementById("btn-work-filter").classList.toggle("active", showWorkOnly);
+        renderProjectList(cachedProjects);
+    });
+
+    // Project search
+    const searchInput = document.getElementById("project-search");
+    const clearBtn = document.getElementById("btn-clear-project-search");
+    searchInput.addEventListener("input", () => {
+        projectSearchQuery = searchInput.value.trim().toLowerCase();
+        clearBtn.style.display = projectSearchQuery ? "" : "none";
+        renderProjectList(cachedProjects);
+    });
+    searchInput.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+            searchInput.value = "";
+            projectSearchQuery = "";
+            clearBtn.style.display = "none";
+            renderProjectList(cachedProjects);
+        }
+    });
+    clearBtn.addEventListener("click", () => {
+        searchInput.value = "";
+        projectSearchQuery = "";
+        clearBtn.style.display = "none";
+        searchInput.focus();
         renderProjectList(cachedProjects);
     });
 
@@ -611,7 +672,13 @@ async function loadProjects() {
 
 function renderProjectList(projects) {
     const list = document.getElementById("project-list");
-    const visible = showWorkOnly ? projects.filter(p => p.work_related) : projects;
+    let visible = showWorkOnly ? projects.filter(p => p.work_related) : projects;
+    if (projectSearchQuery) {
+        visible = visible.filter(p =>
+            (p.display_name || "").toLowerCase().includes(projectSearchQuery) ||
+            (p.name || "").toLowerCase().includes(projectSearchQuery)
+        );
+    }
 
     if (projects.length === 0) {
         list.innerHTML = `
@@ -621,9 +688,12 @@ function renderProjectList(projects) {
         return;
     }
     if (visible.length === 0) {
+        const msg = projectSearchQuery
+            ? `No projects match "<b>${escapeHtml(projectSearchQuery)}</b>".`
+            : "No work-related projects yet.<br>Check the Work box on any project.";
         list.innerHTML = `
             <div style="padding: 16px; color: var(--text-muted); font-size: 12px; text-align: center;">
-                No work-related projects yet.<br>Check the Work box on any project.
+                ${msg}
             </div>`;
         return;
     }
@@ -706,8 +776,134 @@ async function selectProject(name) {
     document.getElementById("sessions-header").style.display = "flex";
     await loadSessions(name);
 
+    // Update navigate (live URL) button visibility
+    updateNavigateButton(name);
+
     // Refresh file tree if visible
     if (fileTreeVisible) loadFileTree();
+}
+
+// ─── Navigate (live URL) Button ────────────────────────────────────────────
+
+function updateNavigateButton(projectName) {
+    const wrapper = document.getElementById("navigate-wrapper");
+    const menu = document.getElementById("navigate-menu");
+    menu.style.display = "none";
+    const proj = cachedProjects.find(p => p.name === projectName);
+    const urls = (proj && Array.isArray(proj.urls)) ? proj.urls : [];
+    if (!urls.length) {
+        wrapper.style.display = "none";
+        return;
+    }
+    wrapper.style.display = "block";
+    const btn = document.getElementById("btn-navigate");
+    if (urls.length === 1) {
+        btn.title = `Open ${urls[0].label}: ${urls[0].url}`;
+    } else {
+        btn.title = `Open one of ${urls.length} URLs for this project`;
+    }
+}
+
+function toggleNavigateMenu() {
+    const proj = cachedProjects.find(p => p.name === activeProject);
+    const urls = (proj && Array.isArray(proj.urls)) ? proj.urls : [];
+    if (!urls.length) return;
+    if (urls.length === 1) {
+        window.open(urls[0].url, "_blank", "noopener");
+        return;
+    }
+    const menu = document.getElementById("navigate-menu");
+    if (menu.style.display === "block") {
+        menu.style.display = "none";
+        return;
+    }
+    menu.innerHTML = urls.map((u, i) => `
+        <div class="nav-menu-item" data-nav-index="${i}">
+            <span class="nav-label">${escapeHtml(u.label)}</span>
+            <span class="nav-url">${escapeHtml(u.url)}</span>
+        </div>
+    `).join("");
+    menu.querySelectorAll(".nav-menu-item").forEach(el => {
+        el.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const idx = parseInt(el.dataset.navIndex, 10);
+            const u = urls[idx];
+            if (u) window.open(u.url, "_blank", "noopener");
+            menu.style.display = "none";
+        });
+    });
+    menu.style.display = "block";
+}
+
+// ─── Project URLs Modal ────────────────────────────────────────────────────
+
+let urlsModalProject = null;
+
+async function openUrlsModal(projectName) {
+    urlsModalProject = projectName;
+    document.getElementById("urls-modal-title").textContent = `Live URLs — ${projectName}`;
+    let urls = [];
+    try {
+        const resp = await fetch(`/api/projects/${encodeURIComponent(projectName)}/urls`);
+        if (resp.ok) {
+            const data = await resp.json();
+            urls = data.urls || [];
+        }
+    } catch (e) { console.error("Failed to load URLs:", e); }
+    renderUrlsModal(urls);
+    openModal("urls-modal");
+}
+
+function renderUrlsModal(urls) {
+    const list = document.getElementById("urls-list");
+    if (!urls.length) {
+        list.innerHTML = `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">No URLs configured. Click + Add URL below.</div>`;
+        return;
+    }
+    list.innerHTML = urls.map((u, i) => `
+        <div class="url-row" data-url-index="${i}">
+            <input type="text" class="url-label" value="${escapeAttr(u.label || '')}" placeholder="Label (e.g. Production)">
+            <input type="text" class="url-value" value="${escapeAttr(u.url || '')}" placeholder="https://example.com">
+            <button type="button" class="url-remove" title="Remove">&times;</button>
+        </div>
+    `).join("");
+    list.querySelectorAll(".url-remove").forEach(btn => {
+        btn.addEventListener("click", () => {
+            btn.closest(".url-row").remove();
+            if (!list.querySelector(".url-row")) renderUrlsModal([]);
+        });
+    });
+}
+
+function readUrlsFromModal() {
+    const rows = document.querySelectorAll("#urls-list .url-row");
+    const out = [];
+    rows.forEach(r => {
+        const label = r.querySelector(".url-label").value.trim();
+        const url = r.querySelector(".url-value").value.trim();
+        if (url) out.push({ label: label || url, url });
+    });
+    return out;
+}
+
+async function saveUrlsModal() {
+    if (!urlsModalProject) return;
+    const urls = readUrlsFromModal();
+    try {
+        const resp = await fetch(`/api/projects/${encodeURIComponent(urlsModalProject)}/urls`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ urls }),
+        });
+        if (!resp.ok) throw new Error(await resp.text());
+        const data = await resp.json();
+        const proj = cachedProjects.find(p => p.name === urlsModalProject);
+        if (proj) proj.urls = data.urls;
+        if (urlsModalProject === activeProject) updateNavigateButton(activeProject);
+        closeModal("urls-modal");
+    } catch (e) {
+        alert("Failed to save URLs: " + e);
+    }
 }
 
 async function createProject() {
@@ -1673,6 +1869,7 @@ function onProjectContextMenu(e, projectName) {
     showContextMenu(e, [
         { label: isPinned ? "Unpin Project" : "Pin to Top", action: "pin", handler: () => togglePinProject(projectName) },
         { label: "Set Working Directory", action: "workdir", handler: () => setProjectWorkDir(projectName) },
+        { label: "Manage Live URLs...", action: "urls", handler: () => openUrlsModal(projectName) },
         { label: "Rename Project", action: "rename", handler: () => renameProject(projectName) },
         "---",
         { label: "Delete Project", action: "delete", danger: true, handler: () => deleteProject(projectName) },
@@ -1683,9 +1880,29 @@ function onSessionContextMenu(e, project, sessionId) {
     showContextMenu(e, [
         { label: "Rename Session", action: "rename", handler: () => renameSession(project, sessionId) },
         { label: "Move to Project...", action: "move", handler: () => moveSession(project, sessionId) },
+        { label: "Copy UUID", action: "copy-uuid", handler: () => copySessionUuidFromList(project, sessionId) },
         "---",
         { label: "Delete Session", action: "delete", danger: true, handler: () => deleteSession(project, sessionId) },
     ]);
+}
+
+async function copySessionUuidFromList(project, sessionId) {
+    try {
+        const resp = await fetch(`/api/projects/${encodeURIComponent(project)}/sessions/${encodeURIComponent(sessionId)}`);
+        if (!resp.ok) {
+            alert("Failed to load session.");
+            return;
+        }
+        const session = await resp.json();
+        const uuid = session.claude_session_id;
+        if (!uuid) {
+            alert("This session has no Claude UUID (saved before resume support was added).");
+            return;
+        }
+        await navigator.clipboard.writeText(uuid);
+    } catch (e) {
+        console.error("Copy UUID failed:", e);
+    }
 }
 
 async function togglePinProject(name) {

@@ -158,6 +158,39 @@ html, body {
     gap: 2px;
 }
 
+/* Search input above the project list */
+.project-search-row {
+    position: relative;
+    padding: 4px 12px 6px;
+}
+.project-search-row input {
+    width: 100%;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    padding: 4px 22px 4px 8px;
+    border-radius: var(--radius);
+    font-size: 12px;
+    font-family: var(--font-ui);
+    outline: none;
+}
+.project-search-row input:focus { border-color: var(--border-focus); }
+.project-search-row input::placeholder { color: var(--text-muted); }
+.project-search-row button {
+    position: absolute;
+    right: 16px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    padding: 0 2px;
+}
+.project-search-row button:hover { color: var(--text-bright); }
+
 /* Column header row above the project list */
 .project-col-header {
     display: flex;
@@ -308,6 +341,86 @@ html, body {
 .tab-status { font-size: 8px; }
 .tab-status.running { color: var(--success); }
 .tab-status.stopped { color: var(--text-muted); }
+
+/* Navigate (live URL) button next to Git tab */
+#navigate-wrapper {
+    margin-left: auto;
+    margin-right: 8px;
+    align-self: center;
+}
+.tab-action-btn {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    cursor: pointer;
+    font-size: 14px;
+    padding: 3px 10px;
+    border-radius: var(--radius);
+    transition: all var(--transition);
+}
+.tab-action-btn:hover { background: var(--bg-hover); border-color: var(--text-muted); }
+#navigate-menu {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 4px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+    min-width: 220px;
+    padding: 4px;
+    z-index: 1500;
+}
+.nav-menu-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+.nav-menu-item:hover { background: var(--bg-hover); }
+.nav-menu-item .nav-label { font-size: 12px; color: var(--text-primary); font-weight: 500; }
+.nav-menu-item .nav-url { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* URL management modal rows */
+.url-row {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 6px;
+    align-items: center;
+}
+.url-row input.url-label {
+    flex: 0 0 120px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    padding: 5px 8px;
+    border-radius: var(--radius);
+    font-size: 12px;
+    font-family: var(--font-ui);
+}
+.url-row input.url-value {
+    flex: 1;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    padding: 5px 8px;
+    border-radius: var(--radius);
+    font-size: 12px;
+    font-family: var(--font-mono);
+}
+.url-row input:focus { border-color: var(--border-focus); outline: none; }
+.url-row button.url-remove {
+    background: none;
+    border: none;
+    color: var(--danger);
+    cursor: pointer;
+    font-size: 16px;
+    padding: 2px 6px;
+}
+.url-row button.url-remove:hover { color: #ff7777; }
 
 /* ─── Panels ───────────────────────────────────────────────────────────── */
 

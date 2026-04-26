@@ -99,7 +99,7 @@ data/
   settings.json              # IDE settings (claude_cmd, default_project, font_size)
   projects/
     <project-name>/
-      project.json           # Name, display_name, description, working_directory, pinned, created
+      project.json           # Name, display_name, description, working_directory, pinned, created, work_related, urls[]
       sessions/
         sess_YYYYMMDD_HHMMSS_<hex>.json   # Session record with raw_transcript, claude_session_id, tags
   unsorted_sessions/         # Sessions saved without a project

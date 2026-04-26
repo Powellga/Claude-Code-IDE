@@ -397,6 +397,7 @@ def list_projects():
                 "description": meta.get("description", ""),
                 "pinned": meta.get("pinned", False),
                 "work_related": meta.get("work_related", False),
+                "urls": meta.get("urls", []),
                 "session_count": session_count,
                 "last_session_mtime": last_session_mtime,
             })
@@ -928,6 +929,35 @@ def api_pin_project(name):
     with open(meta_path, "w") as f:
         json.dump(meta, f, indent=2)
     return jsonify(meta)
+
+
+@app.route("/api/projects/<name>/urls", methods=["GET", "PUT"])
+def api_project_urls(name):
+    """Get or replace the list of URLs (live web hosts / local URLs) for a project."""
+    meta_path = PROJECTS_DIR / name / "project.json"
+    if not meta_path.exists():
+        return jsonify({"error": "Project not found"}), 404
+    with open(meta_path) as f:
+        meta = json.load(f)
+    if request.method == "GET":
+        return jsonify({"urls": meta.get("urls", [])})
+    data = request.json or {}
+    raw = data.get("urls", [])
+    if not isinstance(raw, list):
+        return jsonify({"error": "urls must be a list"}), 400
+    cleaned = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        url = (entry.get("url") or "").strip()
+        if not url:
+            continue
+        label = (entry.get("label") or "").strip() or url
+        cleaned.append({"label": label, "url": url})
+    meta["urls"] = cleaned
+    with open(meta_path, "w") as f:
+        json.dump(meta, f, indent=2)
+    return jsonify({"urls": cleaned})
 
 
 @app.route("/api/projects/<name>/work-related", methods=["POST"])

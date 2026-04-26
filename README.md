@@ -21,6 +21,9 @@ This is not a thin wrapper or a chat UI that calls an API. It manages real PTY p
 - **Pin Projects** — Right-click to pin frequently used projects to the top of the sidebar
 - **Work-Related Filter** — Right-aligned "Work" checkbox column in the sidebar with a header toggle (⚑) to filter the list to work projects only
 - **Most-Recent-First Sort** — Projects are ordered by the timestamp of their most recent session (pinned projects still float to the top)
+- **Project Search** — Search box below the PROJECTS header filters the project list by name in real time (Esc clears)
+- **Live URLs** — Per-project list of live URLs (production, staging, localhost, etc.); a 🌐 button next to the Git tab opens the URL or shows a dropdown when more than one is configured
+- **Copy Session UUID** — Right-click any session in the sidebar and pick *Copy UUID* to copy its Claude Code session ID to the clipboard
 - **File Tree** — Toggle a file explorer panel alongside the terminal showing the project's working directory with path display; click any file to ask Claude to read it
 - **Git Integration** — Dedicated Git tab showing branch, changed files, recent commits, and full color-highlighted diffs; initialize new repos from the UI
 - **Timestamps** — Projects and sessions display their creation date and time in the sidebar
@@ -221,6 +224,7 @@ claude-code-ide/
 - [x] Phase 13: Minimal CLAUDE.md template, open-in-Explorer button, fix resumed sessions always using project working directory
 - [x] Phase 14: Permission mode status bar (ask permissions, auto accept edits, plan mode, bypass permissions), fix session resume using session's original working directory
 - [x] Phase 15: Wider sidebar, work-related project flag with right-aligned checkbox column and filter toggle, project list sorted by most recent session
+- [x] Phase 16: Project search bar, per-project live URLs with tab-bar navigate button (single URL or dropdown), Copy UUID context menu on sessions
 
 ## How Is This Different from Claude Desktop?
 
