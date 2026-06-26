@@ -6,3 +6,8 @@ local.settings.json
 .env
 .claude/
 backups/
+
+# Local MCP config — contains personal paths + secrets (Telegram API ID/hash,
+# server locations). NEVER commit. Each user copies .mcp.json.example to
+# .mcp.json and fills in their own values.
+.mcp.json

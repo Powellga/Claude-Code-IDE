@@ -198,6 +198,24 @@ claude-code-ide/
 | `CLAUDE_IDE_CMD` | `claude` | Command to launch Claude Code |
 | `CLAUDE_IDE_SECRET` | (dev key) | Flask secret key |
 
+### MCP Servers (Browser, Telegram, Gmail)
+
+The IDE drives Claude Code, which connects to **MCP servers** for browser automation, file processing, Telegram, and Gmail. These server definitions are **not committed** to git - they contain machine-specific paths and personal secrets (e.g. Telegram API credentials). The repo ships a template instead.
+
+**Setup:**
+
+1. Copy the template to create your local config:
+   ```powershell
+   copy .mcp.json.example .mcp.json
+   ```
+2. Install the companion MCP servers you want (see **Companion Projects** below), then edit `.mcp.json`:
+   - Replace each `C:/path/to/...` with the real path to that server on **your** machine.
+   - For **Telegram**, set `TELEGRAM_API_ID` / `TELEGRAM_API_HASH` to your own values from https://my.telegram.org.
+   - For **Gmail**, complete that server's own OAuth flow (its tokens stay local).
+3. Start the IDE. On first use, Claude Code **prompts you to approve** each MCP server before it runs.
+
+**Security:** `.mcp.json` is git-ignored, so your paths and secrets are never committed. The template holds only placeholders, and every user authenticates with **their own** accounts - downloading this repo gives you no access to anyone else's Telegram, Gmail, or browser session. The `browser` server is required for the IDE's file-upload and screenshot features; `telegram` and `gmail` are optional.
+
 ## Keyboard Shortcuts
 
 | Shortcut | Action |

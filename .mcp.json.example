@@ -1,0 +1,27 @@
+{
+  "mcpServers": {
+    "browser": {
+      "type": "stdio",
+      "command": "C:/path/to/Claude_Browser_MCP_Server/.venv/Scripts/python.exe",
+      "args": ["C:/path/to/Claude_Browser_MCP_Server/browser_mcp.py"],
+      "env": {
+        "BROWSER_HEADLESS": "false"
+      }
+    },
+    "telegram": {
+      "type": "stdio",
+      "command": "C:/path/to/telegram-claude-link/.venv/Scripts/python.exe",
+      "args": ["C:/path/to/telegram-claude-link/telegram_mcp.py"],
+      "env": {
+        "TELEGRAM_API_ID": "YOUR_TELEGRAM_API_ID",
+        "TELEGRAM_API_HASH": "YOUR_TELEGRAM_API_HASH"
+      }
+    },
+    "gmail": {
+      "type": "stdio",
+      "command": "C:/path/to/Claude_Gmail_MCP_Server/.venv/Scripts/python.exe",
+      "args": ["C:/path/to/Claude_Gmail_MCP_Server/gmail_mcp.py"],
+      "env": {}
+    }
+  }
+}
