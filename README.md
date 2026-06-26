@@ -67,37 +67,53 @@ Each project has a configurable working directory. When you start a session, the
 
 ## Requirements
 
-- **Python 3.10+**
-- **Claude Code** installed and on PATH (`npm install -g @anthropic-ai/claude-code`)
-- **Windows 10/11** (primary target; Unix/macOS also supported)
+This IDE **wraps** the Claude Code CLI - it does not replace it. You need these installed *before* the IDE will run:
+
+| Prerequisite | Required? | Notes |
+|---|---|---|
+| **Python 3.10+** | Required | Backend is Flask + Python |
+| **Claude Code CLI** | Required | `npm install -g @anthropic-ai/claude-code` - must be on PATH (verify with `claude --version`) |
+| **Windows 10/11** | Recommended | Primary target (UAC elevation, `pywinpty`/ConPTY). Unix/macOS run with reduced terminal fidelity |
+| **Admin rights** | Required (Windows) | The app self-elevates via UAC on startup so sessions get the access Claude Code needs |
+| **MCP servers** | Optional | Needed only for file-upload, screenshots, Telegram, Gmail - see [MCP Servers](#mcp-servers-browser-telegram-gmail) |
 
 ## Quick Start
+
+First confirm the prerequisites above are in place (`claude --version` should work).
 
 ### 1. Set Up Environment
 
 ```powershell
-# Navigate to the project
-cd claude-code-ide
+# Clone and enter the project
+git clone https://github.com/Powellga/Claude-Code-IDE.git
+cd Claude-Code-IDE
 
-# Create a virtual environment
+# Create and activate a virtual environment
 python -m venv .venv
-
-# Activate it
 .\.venv\Scripts\Activate
 
-# Install dependencies
+# Install dependencies (requirements.txt includes pywinpty on Windows)
 pip install -r requirements.txt
 ```
 
-**Windows note:** You also need `pywinpty` for interactive terminal support:
+### 2. (Optional) Configure MCP Servers
+
+For file-upload, screenshots, Telegram, or Gmail support, copy the template and fill in your own paths/credentials (see [MCP Servers](#mcp-servers-browser-telegram-gmail) for details):
+
 ```powershell
-pip install pywinpty
+copy .mcp.json.example .mcp.json
 ```
 
-### 2. Run the IDE
+Skip this step to run the IDE with the core terminal/session features only.
+
+### 3. Run the IDE
 
 ```powershell
+# Either run directly:
 python app.py
+
+# ...or use the launcher (runs a data backup first, then starts):
+.\start-ide.bat
 ```
 
 Then open **http://localhost:5050** in your browser.
@@ -106,7 +122,7 @@ Then open **http://localhost:5050** in your browser.
 If you see a UAC prompt, click Yes — this ensures all Claude Code
 sessions have the elevated access needed for system-level tasks.
 
-### 3. Use It
+### 4. Use It
 
 1. Click **+ New Project** in the sidebar to create a project (optionally set a working directory)
 2. Select the project in the sidebar
