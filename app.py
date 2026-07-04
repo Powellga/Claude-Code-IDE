@@ -13,6 +13,7 @@ Usage:
 import json
 import os
 import re
+import shutil
 import sys
 import time
 import uuid
@@ -73,6 +74,7 @@ BASE_DIR = Path(__file__).parent
 DATA_DIR = Path(os.getenv("CLAUDE_IDE_DATA", BASE_DIR / "data"))
 PROJECTS_DIR = DATA_DIR / "projects"
 PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
+ARCHIVED_DIR = DATA_DIR / "archived_projects"
 
 # Default shell and Claude Code command
 if sys.platform == "win32":
@@ -287,13 +289,8 @@ def _project_for_workdir(working_directory):
     for d in PROJECTS_DIR.iterdir():
         if not d.is_dir():
             continue
-        meta_path = d / "project.json"
-        if not meta_path.exists():
-            continue
-        try:
-            with open(meta_path) as f:
-                meta = json.load(f)
-        except Exception:
+        meta = _read_project_meta(d.name)
+        if meta is None:
             continue
         wd = meta.get("working_directory", "")
         if not wd:
@@ -408,16 +405,36 @@ def list_sessions(project_name):
 
 # ─── Project Management ────────────────────────────────────────────────────
 
+def _safe_project_name(name):
+    """Reject names that could escape the projects directory."""
+    return bool(name) and "/" not in name and "\\" not in name and ".." not in name
+
+
+def _read_project_meta(name, base_dir=None):
+    """Read a project's metadata. Returns None if missing or unreadable."""
+    meta_path = (base_dir or PROJECTS_DIR) / name / "project.json"
+    if not meta_path.exists():
+        return None
+    try:
+        with open(meta_path, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"[IDE] Failed to read {meta_path}: {e}")
+        return None
+
+
+def _write_project_meta(name, meta):
+    """Write a project's metadata."""
+    with open(PROJECTS_DIR / name / "project.json", "w", encoding="utf-8") as f:
+        json.dump(meta, f, indent=2, ensure_ascii=False)
+
+
 def list_projects():
     """List all projects."""
     projects = []
     for d in sorted(PROJECTS_DIR.iterdir()):
         if d.is_dir():
-            meta_file = d / "project.json"
-            meta = {}
-            if meta_file.exists():
-                with open(meta_file, "r") as f:
-                    meta = json.load(f)
+            meta = _read_project_meta(d.name) or {}
 
             sessions_dir = d / "sessions"
             session_files = list(sessions_dir.glob("*.json")) if sessions_dir.exists() else []
@@ -453,8 +470,7 @@ def create_project(name, display_name=None, description="", working_directory=""
         "working_directory": working_directory,
         "created": datetime.now().isoformat(),
     }
-    with open(project_dir / "project.json", "w") as f:
-        json.dump(meta, f, indent=2)
+    _write_project_meta(name, meta)
 
     # Auto-create CLAUDE.md in the working directory
     if working_directory:
@@ -498,7 +514,6 @@ This file provides guidance to Claude Code when working with code in this reposi
 
 def delete_project(name):
     """Delete a project and all its sessions."""
-    import shutil
     project_dir = PROJECTS_DIR / name
     if project_dir.exists():
         shutil.rmtree(project_dir)
@@ -512,12 +527,15 @@ SETTINGS_FILE = DATA_DIR / "settings.json"
 
 def load_settings():
     if SETTINGS_FILE.exists():
-        with open(SETTINGS_FILE) as f:
-            return json.load(f)
+        try:
+            with open(SETTINGS_FILE, encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"[IDE] Failed to read settings: {e}")
     return {"claude_cmd": CLAUDE_CMD, "default_project": "", "font_size": 14}
 
 def save_settings(settings):
-    with open(SETTINGS_FILE, "w") as f:
+    with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
         json.dump(settings, f, indent=2)
 
 
@@ -580,6 +598,10 @@ def api_create_project():
     name = data.get("name", "").strip().replace(" ", "-").lower()
     if not name:
         return jsonify({"error": "Project name required"}), 400
+    if not _safe_project_name(name):
+        return jsonify({"error": "Invalid project name"}), 400
+    if (PROJECTS_DIR / name).exists():
+        return jsonify({"error": f"Project '{name}' already exists"}), 409
     meta = create_project(name, data.get("display_name"), data.get("description", ""), data.get("working_directory", ""))
     return jsonify(meta), 201
 
@@ -795,6 +817,8 @@ def _run_git(args, cwd, timeout=5):
         cwd=cwd,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=timeout,
         stdin=subprocess.DEVNULL,
         env=env,
@@ -808,13 +832,13 @@ def _run_git(args, cwd, timeout=5):
 
 def _collect_git_status(wd):
     """Gather all git info for a working directory. Runs in a thread."""
-    import subprocess
-
-    # Check if it's a git repo
+    # Check if it's a git repo. subprocess.run does not raise on a non-zero
+    # exit code, so the returncode must be checked explicitly - otherwise
+    # non-git directories are misreported as git repos.
     try:
-        _run_git(["rev-parse", "--git-dir"], wd, timeout=3)
-    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
-        return {"error": "Not a git repository", "is_git": False}
+        check = _run_git(["rev-parse", "--git-dir"], wd, timeout=3)
+        if check.returncode != 0:
+            return {"error": "Not a git repository", "is_git": False}
     except Exception:
         return {"error": "Not a git repository", "is_git": False}
 
@@ -950,29 +974,86 @@ def api_delete_project(name):
     return jsonify({"error": "Project not found"}), 404
 
 
+# ── Archive API ──
+
+@app.route("/api/projects/<name>/archive", methods=["POST"])
+def api_archive_project(name):
+    """Move a project into the archive so it no longer appears in the projects list."""
+    if not _safe_project_name(name):
+        return jsonify({"error": "Invalid project name"}), 400
+    src = PROJECTS_DIR / name
+    if not src.is_dir():
+        return jsonify({"error": "Project not found"}), 404
+    ARCHIVED_DIR.mkdir(parents=True, exist_ok=True)
+    dest = ARCHIVED_DIR / name
+    if dest.exists():
+        return jsonify({"error": f"An archived project named '{name}' already exists"}), 409
+    try:
+        shutil.move(str(src), str(dest))
+    except Exception as e:
+        return jsonify({"error": f"Archive failed: {e}"}), 500
+    print(f"[IDE] Archived project: {name}")
+    return jsonify({"status": "archived", "name": name})
+
+
+@app.route("/api/archived", methods=["GET"])
+def api_list_archived():
+    """List archived projects."""
+    if not ARCHIVED_DIR.exists():
+        return jsonify([])
+    projects = []
+    for d in sorted(ARCHIVED_DIR.iterdir()):
+        if not d.is_dir():
+            continue
+        meta = _read_project_meta(d.name, base_dir=ARCHIVED_DIR) or {}
+        sessions_dir = d / "sessions"
+        session_count = len(list(sessions_dir.glob("*.json"))) if sessions_dir.exists() else 0
+        projects.append({
+            "name": d.name,
+            "display_name": meta.get("display_name", d.name),
+            "description": meta.get("description", ""),
+            "work_related": meta.get("work_related", False),
+            "session_count": session_count,
+        })
+    return jsonify(projects)
+
+
+@app.route("/api/archived/<name>/unarchive", methods=["POST"])
+def api_unarchive_project(name):
+    """Restore an archived project back into the projects list."""
+    if not _safe_project_name(name):
+        return jsonify({"error": "Invalid project name"}), 400
+    src = ARCHIVED_DIR / name
+    if not src.is_dir():
+        return jsonify({"error": "Archived project not found"}), 404
+    dest = PROJECTS_DIR / name
+    if dest.exists():
+        return jsonify({"error": f"A project named '{name}' already exists"}), 409
+    try:
+        shutil.move(str(src), str(dest))
+    except Exception as e:
+        return jsonify({"error": f"Restore failed: {e}"}), 500
+    print(f"[IDE] Restored project from archive: {name}")
+    return jsonify({"status": "restored", "name": name})
+
+
 @app.route("/api/projects/<name>/pin", methods=["POST"])
 def api_pin_project(name):
     """Toggle the pinned state of a project."""
-    project_dir = PROJECTS_DIR / name
-    meta_path = project_dir / "project.json"
-    if not meta_path.exists():
+    meta = _read_project_meta(name)
+    if meta is None:
         return jsonify({"error": "Project not found"}), 404
-    with open(meta_path) as f:
-        meta = json.load(f)
     meta["pinned"] = not meta.get("pinned", False)
-    with open(meta_path, "w") as f:
-        json.dump(meta, f, indent=2)
+    _write_project_meta(name, meta)
     return jsonify(meta)
 
 
 @app.route("/api/projects/<name>/urls", methods=["GET", "PUT"])
 def api_project_urls(name):
     """Get or replace the list of URLs (live web hosts / local URLs) for a project."""
-    meta_path = PROJECTS_DIR / name / "project.json"
-    if not meta_path.exists():
+    meta = _read_project_meta(name)
+    if meta is None:
         return jsonify({"error": "Project not found"}), 404
-    with open(meta_path) as f:
-        meta = json.load(f)
     if request.method == "GET":
         return jsonify({"urls": meta.get("urls", [])})
     data = request.json or {}
@@ -989,48 +1070,40 @@ def api_project_urls(name):
         label = (entry.get("label") or "").strip() or url
         cleaned.append({"label": label, "url": url})
     meta["urls"] = cleaned
-    with open(meta_path, "w") as f:
-        json.dump(meta, f, indent=2)
+    _write_project_meta(name, meta)
     return jsonify({"urls": cleaned})
 
 
 @app.route("/api/projects/<name>/work-related", methods=["POST"])
 def api_toggle_work_related(name):
     """Set or toggle the work_related flag on a project."""
-    meta_path = PROJECTS_DIR / name / "project.json"
-    if not meta_path.exists():
+    meta = _read_project_meta(name)
+    if meta is None:
         return jsonify({"error": "Project not found"}), 404
-    with open(meta_path) as f:
-        meta = json.load(f)
     data = request.json or {}
     if "work_related" in data:
         meta["work_related"] = bool(data["work_related"])
     else:
         meta["work_related"] = not meta.get("work_related", False)
-    with open(meta_path, "w") as f:
-        json.dump(meta, f, indent=2)
+    _write_project_meta(name, meta)
     return jsonify(meta)
 
 
 @app.route("/api/projects/<name>/workdir", methods=["GET"])
 def api_get_workdir(name):
     """Get the working directory for a project."""
-    meta_path = PROJECTS_DIR / name / "project.json"
-    if not meta_path.exists():
+    meta = _read_project_meta(name)
+    if meta is None:
         return jsonify({"error": "Project not found"}), 404
-    with open(meta_path) as f:
-        meta = json.load(f)
     return jsonify({"working_directory": meta.get("working_directory", "")})
 
 
 @app.route("/api/projects/<name>/open-workdir", methods=["POST"])
 def api_open_workdir(name):
     """Open the project working directory in the system file explorer."""
-    meta_path = PROJECTS_DIR / name / "project.json"
-    if not meta_path.exists():
+    meta = _read_project_meta(name)
+    if meta is None:
         return jsonify({"error": "Project not found"}), 404
-    with open(meta_path) as f:
-        meta = json.load(f)
     wd = meta.get("working_directory", "")
     if not wd or not os.path.isdir(wd):
         return jsonify({"error": "Working directory not found"}), 404
@@ -1052,14 +1125,11 @@ def api_set_workdir(name):
     """Set the working directory for a project."""
     data = request.json
     new_wd = data.get("working_directory", "").strip()
-    meta_path = PROJECTS_DIR / name / "project.json"
-    if not meta_path.exists():
+    meta = _read_project_meta(name)
+    if meta is None:
         return jsonify({"error": "Project not found"}), 404
-    with open(meta_path) as f:
-        meta = json.load(f)
     meta["working_directory"] = new_wd
-    with open(meta_path, "w") as f:
-        json.dump(meta, f, indent=2)
+    _write_project_meta(name, meta)
     return jsonify(meta)
 
 
@@ -1069,15 +1139,11 @@ def api_rename_project(name):
     new_display = data.get("display_name", "").strip()
     if not new_display:
         return jsonify({"error": "Display name required"}), 400
-    project_dir = PROJECTS_DIR / name
-    meta_path = project_dir / "project.json"
-    if not meta_path.exists():
+    meta = _read_project_meta(name)
+    if meta is None:
         return jsonify({"error": "Project not found"}), 404
-    with open(meta_path) as f:
-        meta = json.load(f)
     meta["display_name"] = new_display
-    with open(meta_path, "w") as f:
-        json.dump(meta, f, indent=2)
+    _write_project_meta(name, meta)
     return jsonify(meta)
 
 
@@ -1146,7 +1212,6 @@ def api_rename_session(project, session_id):
 @app.route("/api/projects/<project>/sessions/<session_id>/move", methods=["POST"])
 def api_move_session(project, session_id):
     """Move a session from one project to another."""
-    import shutil
     data = request.json
     to_project = data.get("to_project", "").strip()
     if not to_project:
@@ -1274,13 +1339,11 @@ def api_compare_sessions():
 
 def _get_project_working_dir(project_name):
     """Resolve the working directory for a project."""
-    meta_file = PROJECTS_DIR / project_name / "project.json"
-    if meta_file.exists():
-        with open(meta_file, "r") as f:
-            meta = json.load(f)
-            wd = meta.get("working_directory", "")
-            if wd:
-                return wd
+    meta = _read_project_meta(project_name)
+    if meta:
+        wd = meta.get("working_directory", "")
+        if wd:
+            return wd
     return str(Path.home())
 
 
@@ -1332,11 +1395,16 @@ def api_search():
                 transcript = data.get("raw_transcript", "").lower()
                 summary = data.get("summary", "").lower()
                 if query in transcript or query in summary:
-                    # Find snippet around match
+                    # Find snippet around match; fall back to the summary
+                    # when the match is only in the summary (find() = -1
+                    # would otherwise slice a meaningless snippet).
                     idx = transcript.find(query)
-                    start = max(0, idx - 100)
-                    end = min(len(transcript), idx + len(query) + 100)
-                    snippet = transcript[start:end]
+                    if idx >= 0:
+                        start = max(0, idx - 100)
+                        end = min(len(transcript), idx + len(query) + 100)
+                        snippet = transcript[start:end]
+                    else:
+                        snippet = data.get("summary", "")
 
                     results.append({
                         "project": project_dir.name,
@@ -1479,9 +1547,9 @@ def on_disconnect():
 def _permission_mode_flags(mode):
     """Map a permission mode name to Claude Code CLI flags."""
     if mode == "autoAcceptEdits":
-        return " --allowedTools Edit --allowedTools Write --allowedTools NotebookEdit"
+        return " --permission-mode acceptEdits"
     elif mode == "planMode":
-        return " --mode plan"
+        return " --permission-mode plan"
     elif mode == "bypassPermissions":
         return " --dangerously-skip-permissions"
     # "askPermissions" or default: no extra flags
@@ -1497,13 +1565,11 @@ def on_start_terminal(data):
     project_path = None
 
     if project:
-        project_meta_file = PROJECTS_DIR / project / "project.json"
-        if project_meta_file.exists():
-            with open(project_meta_file) as f:
-                meta = json.load(f)
-                wd = meta.get("working_directory", "")
-                if wd and os.path.isdir(wd):
-                    project_path = wd
+        meta = _read_project_meta(project)
+        if meta:
+            wd = meta.get("working_directory", "")
+            if wd and os.path.isdir(wd):
+                project_path = wd
 
     # Generate a Claude session ID so we can resume later via claude --resume
     claude_session_id = str(uuid.uuid4())
@@ -1544,13 +1610,11 @@ def on_resume_session(data):
     if session_wd and os.path.isdir(session_wd):
         project_path = session_wd
     elif project:
-        project_meta_file = PROJECTS_DIR / project / "project.json"
-        if project_meta_file.exists():
-            with open(project_meta_file) as f:
-                meta = json.load(f)
-                wd = meta.get("working_directory", "")
-                if wd and os.path.isdir(wd):
-                    project_path = wd
+        meta = _read_project_meta(project)
+        if meta:
+            wd = meta.get("working_directory", "")
+            if wd and os.path.isdir(wd):
+                project_path = wd
 
     cmd = f"{CLAUDE_CMD} --resume {claude_session_id}{_permission_mode_flags(permission_mode)}"
     success = _spawn_terminal(sid, project_path, cmd=cmd, claude_session_id=claude_session_id)

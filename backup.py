@@ -95,7 +95,8 @@ def git_push_backup():
         return subprocess.run(
             ["git"] + list(args),
             cwd=str(BACKUP_REPO),
-            capture_output=True, text=True
+            capture_output=True, text=True,
+            encoding="utf-8", errors="replace"
         )
 
     git("add", "-A")

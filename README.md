@@ -19,7 +19,8 @@ This is not a thin wrapper or a chat UI that calls an API. It manages real PTY p
 - **Conversation Import** — Paste text from claude.ai, ChatGPT, email, or any source into a modal; saved as a file and Claude picks up where it left off
 - **Quick-Resume** — Hover any project to one-click resume the most recent session
 - **Pin Projects** — Right-click to pin frequently used projects to the top of the sidebar
-- **Work-Related Filter** — Right-aligned "Work" checkbox column in the sidebar with a header toggle (⚑) to filter the list to work projects only
+- **Archive Projects** — Right-click a project to archive it: the project (with all its sessions) moves out of the sidebar into `data/archived_projects/`. A 🗃️ button in the sidebar header opens the archived list, where any project can be restored with one click
+- **Work/Personal Filter** — Right-aligned "Work" checkbox column in the sidebar with a header toggle that cycles All (⚑) → Work only (💼) → Personal only (🏠)
 - **Most-Recent-First Sort** — Projects are ordered by the timestamp of their most recent session (pinned projects still float to the top)
 - **Project Search** — Search box below the PROJECTS header filters the project list by name in real time (Esc clears)
 - **Live URLs** — Per-project list of live URLs (production, staging, localhost, etc.); a 🌐 button next to the Git tab opens the URL or shows a dropdown when more than one is configured
@@ -189,10 +190,13 @@ claude-code-ide/
 │   │   └── style.css   # Dark theme (CSS custom properties, no preprocessor)
 │   └── js/
 │       └── app.js      # Frontend logic (vanilla JS, no framework)
+├── conpty_process.py   # EXPERIMENTAL: direct ConPTY fallback (not used by app.py)
+├── rebuild_jsonl.py    # Utility: rebuild a pruned Claude Code .jsonl so --resume works again
 ├── backups/            # Local zip snapshots (auto-pruned, last 10 kept)
 └── data/
-    ├── settings.json   # IDE settings (persisted across restarts)
-    └── projects/       # Project configs + session JSON files
+    ├── settings.json          # IDE settings (persisted across restarts)
+    ├── projects/              # Project configs + session JSON files
+    └── archived_projects/     # Archived projects (hidden from the sidebar, restorable)
 ```
 
 ## Configuration
@@ -239,7 +243,7 @@ The IDE drives Claude Code, which connects to **MCP servers** for browser automa
 | `Ctrl+Shift+F` | Open search |
 | `Ctrl+S` | Save CLAUDE.md (when editor tab is active) |
 | `Escape` | Close modals |
-| Right-click | Context menu on projects (rename, delete, pin, set working directory) and sessions (rename, delete) |
+| Right-click | Context menu on projects (rename, archive, delete, pin, set working directory, live URLs) and sessions (rename, move, copy UUID, delete) |
 
 ## Roadmap
 
@@ -260,6 +264,7 @@ The IDE drives Claude Code, which connects to **MCP servers** for browser automa
 - [x] Phase 15: Wider sidebar, work-related project flag with right-aligned checkbox column and filter toggle, project list sorted by most recent session
 - [x] Phase 16: Project search bar, per-project live URLs with tab-bar navigate button (single URL or dropdown), Copy UUID context menu on sessions
 - [x] Phase 17: Sessions auto-routed to the correct project on save based on the session's working directory (no more drift from sidebar selection); project-switch blocked while a terminal is running
+- [x] Phase 18: Project archiving (archive/restore with dedicated modal), three-state work/personal filter, and a bug-fix pass: repaired the Compare tab (parameter mismatch), git repo detection, non-ASCII git diffs, Plan mode CLI flag, duplicate-project metadata overwrite, corrupt project.json crash, and session-highlight in the sidebar; consolidated all project metadata I/O into UTF-8-safe helpers
 
 ## How Is This Different from Claude Desktop?
 

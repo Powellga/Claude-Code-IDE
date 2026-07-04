@@ -50,7 +50,8 @@
             <div class="sidebar-header">
                 <span>PROJECTS</span>
                 <div class="sidebar-header-group">
-                    <button id="btn-work-filter" class="sidebar-action" title="Show only work-related projects">⚑</button>
+                    <button id="btn-archived" class="sidebar-action" title="View archived projects">🗃️</button>
+                    <button id="btn-work-filter" class="sidebar-action" title="Showing all projects - click to show work only">⚑</button>
                     <button id="btn-new-project" class="sidebar-action" title="Create a new project to organize your Claude Code sessions">+</button>
                 </div>
             </div>
@@ -380,6 +381,22 @@
                 <div id="urls-list"></div>
                 <button id="btn-add-url" class="toolbar-btn" style="margin-top:8px;">+ Add URL</button>
                 <button id="btn-save-urls" class="toolbar-btn primary" style="margin-top:12px;width:100%;">Save URLs</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ─── Archived Projects Modal ──────────────────────────── -->
+    <div id="archived-modal" class="modal" style="display:none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span>Archived Projects</span>
+                <button class="modal-close" onclick="closeModal('archived-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">
+                    Archived projects are hidden from the sidebar but keep all their sessions. Restore one to bring it back.
+                </div>
+                <div id="archived-list"></div>
             </div>
         </div>
     </div>

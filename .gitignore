@@ -1,11 +1,15 @@
 .venv/
 __pycache__/
 *.pyc
-data/projects/
+data/
 local.settings.json
 .env
 .claude/
 backups/
+
+# Session artifacts and local dev scratch
+screenshot_*.png
+Test_Proj_for_Dev/
 
 # Local MCP config — contains personal paths + secrets (Telegram API ID/hash,
 # server locations). NEVER commit. Each user copies .mcp.json.example to

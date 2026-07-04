@@ -65,7 +65,7 @@ Flask/SocketIO Server (app.py)
 | `static/js/app.js` | ~1880 | Entire frontend: terminal setup, Socket.IO client, sidebar, tabs, modals, context menus, file tree, git panel |
 | `templates/index.html` | ~313 | Single-page layout: tabs, modals, panels (Jinja2 but minimal templating) |
 | `static/css/style.css` | ~778 | Dark theme using CSS custom properties |
-| `conpty_process.py` | ~414 | Direct Windows ConPTY API via ctypes - bypasses pywinpty to properly inherit admin tokens |
+| `conpty_process.py` | ~430 | EXPERIMENTAL, not imported by app.py. Direct Windows ConPTY API via ctypes, kept as a fallback if pywinpty ever breaks admin inheritance. Has a known blocking-read issue (see its docstring) that must be fixed before wiring it in |
 | `backup.py` | ~231 | Local zip snapshots + git push to a separate backup repo |
 | `start-ide.bat` | Launcher | Checks admin, activates venv, runs backup, opens browser, starts server |
 
@@ -102,13 +102,16 @@ data/
       project.json           # Name, display_name, description, working_directory, pinned, created, work_related, urls[]
       sessions/
         sess_YYYYMMDD_HHMMSS_<hex>.json   # Session record with raw_transcript, claude_session_id, tags
+  archived_projects/         # Archived projects (same structure); hidden from the projects list
   unsorted_sessions/         # Sessions saved without a project
 ```
+
+Archiving moves the whole project folder between `projects/` and `archived_projects/` (`POST /api/projects/<name>/archive`, `GET /api/archived`, `POST /api/archived/<name>/unarchive`). All project.json reads/writes go through `_read_project_meta()` / `_write_project_meta()` - always use these helpers (UTF-8, corrupt-file tolerant) instead of opening the file directly.
 
 ## Critical Windows Patterns
 
 - **Always use `encoding="utf-8"`** when reading/writing session JSON files. Raw PTY output contains escape sequences that crash Python's default cp1252 codec.
-- **Admin elevation is required** - pywinpty needs it to properly spawn Claude Code. The ConPTY module (`conpty_process.py`) exists because pywinpty doesn't reliably pass admin tokens to child processes.
+- **Admin elevation is required** - pywinpty needs it to properly spawn Claude Code. Admin token inheritance through pywinpty works correctly in the current setup (verified with `test_admin_inherit.py`); the unused ConPTY module (`conpty_process.py`) is only a fallback in case that ever regresses.
 - **Session resume depends on working directory** - Claude Code's `--resume <uuid>` must run from the same directory the session was originally started in. The `working_directory` field in session JSON tracks this.
 - **Save destination derived from workdir, not UI** - `save_session()` calls `_project_for_workdir()` to find the project whose `working_directory` matches the session record's, and writes there regardless of the project name the UI passed in. This prevents sessions from being filed under whichever project happened to be selected in the sidebar at save time. The frontend also blocks `selectProject()` while a terminal is running (with a Quick-Resume bypass) as a defense-in-depth UX guardrail.
 

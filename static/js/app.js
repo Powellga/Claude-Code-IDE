@@ -19,7 +19,7 @@ let lastClaudeSessionId = null;
 let lastSessionWorkingDir = null;
 let wasRunningBeforeDisconnect = false;
 let currentPermissionMode = "autoAcceptEdits";
-let showWorkOnly = false;
+let projectFilterMode = "all"; // "all" | "work" | "personal"
 let cachedProjects = [];
 let projectSearchQuery = "";
 let suppressProjectSwitchGuard = false;
@@ -530,10 +530,11 @@ function initUI() {
         }
     });
 
-    // Work-related filter toggle
+    // Work / personal filter - cycles All, Work only, Personal only
     document.getElementById("btn-work-filter").addEventListener("click", () => {
-        showWorkOnly = !showWorkOnly;
-        document.getElementById("btn-work-filter").classList.toggle("active", showWorkOnly);
+        const order = ["all", "work", "personal"];
+        projectFilterMode = order[(order.indexOf(projectFilterMode) + 1) % order.length];
+        updateWorkFilterButton();
         renderProjectList(cachedProjects);
     });
 
@@ -560,6 +561,9 @@ function initUI() {
         searchInput.focus();
         renderProjectList(cachedProjects);
     });
+
+    // Archived projects
+    document.getElementById("btn-archived").addEventListener("click", openArchivedModal);
 
     // New project
     document.getElementById("btn-new-project").addEventListener("click", () => {
@@ -671,9 +675,28 @@ async function loadProjects() {
     }
 }
 
+const FILTER_MODE_INFO = {
+    all:      { icon: "⚑",  title: "Showing all projects - click to show work only" },
+    work:     { icon: "💼", title: "Showing work projects only - click to show personal only" },
+    personal: { icon: "🏠", title: "Showing personal projects only - click to show all" },
+};
+
+function updateWorkFilterButton() {
+    const btn = document.getElementById("btn-work-filter");
+    const info = FILTER_MODE_INFO[projectFilterMode];
+    btn.textContent = info.icon;
+    btn.title = info.title;
+    btn.classList.toggle("active", projectFilterMode !== "all");
+}
+
 function renderProjectList(projects) {
     const list = document.getElementById("project-list");
-    let visible = showWorkOnly ? projects.filter(p => p.work_related) : projects;
+    let visible = projects;
+    if (projectFilterMode === "work") {
+        visible = projects.filter(p => p.work_related);
+    } else if (projectFilterMode === "personal") {
+        visible = projects.filter(p => !p.work_related);
+    }
     if (projectSearchQuery) {
         visible = visible.filter(p =>
             (p.display_name || "").toLowerCase().includes(projectSearchQuery) ||
@@ -689,9 +712,14 @@ function renderProjectList(projects) {
         return;
     }
     if (visible.length === 0) {
-        const msg = projectSearchQuery
-            ? `No projects match "<b>${escapeHtml(projectSearchQuery)}</b>".`
-            : "No work-related projects yet.<br>Check the Work box on any project.";
+        let msg;
+        if (projectSearchQuery) {
+            msg = `No projects match "<b>${escapeHtml(projectSearchQuery)}</b>".`;
+        } else if (projectFilterMode === "work") {
+            msg = "No work-related projects yet.<br>Check the Work box on any project.";
+        } else {
+            msg = "No personal projects.<br>Every project is marked as Work.";
+        }
         list.innerHTML = `
             <div style="padding: 16px; color: var(--text-muted); font-size: 12px; text-align: center;">
                 ${msg}
@@ -757,7 +785,7 @@ async function toggleWorkRelated(project, value) {
         if (!resp.ok) throw new Error(await resp.text());
         const proj = cachedProjects.find(p => p.name === project);
         if (proj) proj.work_related = value;
-        if (showWorkOnly) renderProjectList(cachedProjects);
+        if (projectFilterMode !== "all") renderProjectList(cachedProjects);
     } catch (e) {
         console.error("Failed to toggle work-related:", e);
         await loadProjects();
@@ -1025,7 +1053,7 @@ async function viewSession(project, sessionId) {
 
     // Highlight in sidebar
     document.querySelectorAll("#session-list .sidebar-item").forEach(el => {
-        el.classList.toggle("active", el.textContent.includes(sessionId));
+        el.classList.toggle("active", el.dataset.sessionId === sessionId);
     });
 
     try {
@@ -1213,9 +1241,14 @@ async function compareSessions() {
 
     try {
         const resp = await fetch(
-            `/api/sessions/compare?project=${encodeURIComponent(activeProject)}&session_a=${encodeURIComponent(idA)}&session_b=${encodeURIComponent(idB)}`
+            `/api/sessions/compare?projectA=${encodeURIComponent(activeProject)}&sessionA=${encodeURIComponent(idA)}&projectB=${encodeURIComponent(activeProject)}&sessionB=${encodeURIComponent(idB)}`
         );
         const data = await resp.json();
+        if (data.error) {
+            document.getElementById("diff-content-a").textContent = data.error;
+            document.getElementById("diff-content-b").textContent = "";
+            return;
+        }
 
         document.getElementById("diff-header-a").textContent = data.a.summary || "Session A";
         document.getElementById("diff-header-b").textContent = data.b.summary || "Session B";
@@ -1877,6 +1910,7 @@ function onProjectContextMenu(e, projectName) {
         { label: "Manage Live URLs...", action: "urls", handler: () => openUrlsModal(projectName) },
         { label: "Rename Project", action: "rename", handler: () => renameProject(projectName) },
         "---",
+        { label: "Archive Project", action: "archive", handler: () => archiveProject(projectName) },
         { label: "Delete Project", action: "delete", danger: true, handler: () => deleteProject(projectName) },
     ]);
 }
@@ -2032,6 +2066,89 @@ async function renameProject(name) {
         await loadProjects();
     } catch (e) {
         console.error("Rename failed:", e);
+    }
+}
+
+async function archiveProject(name) {
+    if (isTerminalRunning && activeProject === name) {
+        alert("Stop the running terminal session before archiving this project.");
+        return;
+    }
+    if (!confirm(`Archive project "${name}"?\n\nIt will be hidden from the projects list. You can restore it anytime from the Archived Projects view (🗃️).`)) return;
+
+    try {
+        const resp = await fetch(`/api/projects/${encodeURIComponent(name)}/archive`, { method: "POST" });
+        const data = await resp.json();
+        if (data.error) {
+            alert("Archive failed: " + data.error);
+            return;
+        }
+        if (activeProject === name) {
+            activeProject = null;
+            document.getElementById("active-project-label").textContent = "No project selected";
+            document.getElementById("sessions-header").style.display = "none";
+            document.getElementById("session-list").innerHTML = "";
+        }
+        await loadProjects();
+    } catch (e) {
+        console.error("Archive failed:", e);
+        alert("Archive failed. Check console for details.");
+    }
+}
+
+// ─── Archived Projects Modal ────────────────────────────────────────────
+
+async function openArchivedModal() {
+    const list = document.getElementById("archived-list");
+    list.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-muted);">Loading...</div>';
+    openModal("archived-modal");
+
+    try {
+        const resp = await fetch("/api/archived");
+        const projects = await resp.json();
+
+        if (!projects.length) {
+            list.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-muted);font-size:12px;">No archived projects.<br>Right-click a project and choose "Archive Project" to move it here.</div>';
+            return;
+        }
+
+        list.innerHTML = projects.map(p => `
+            <div class="archived-row" data-archived="${escapeAttr(p.name)}">
+                <span class="item-icon">🗃️</span>
+                <div class="archived-info">
+                    <div class="archived-name">${escapeHtml(p.display_name || p.name)}</div>
+                    ${p.description ? `<div class="archived-desc">${escapeHtml(p.description)}</div>` : ""}
+                </div>
+                <span class="item-count">${p.session_count}</span>
+                <button class="toolbar-btn archived-restore" data-restore="${escapeAttr(p.name)}" title="Move this project back to the projects list">Restore</button>
+            </div>
+        `).join("");
+
+        list.querySelectorAll("button[data-restore]").forEach(btn => {
+            btn.addEventListener("click", async () => {
+                btn.disabled = true;
+                btn.textContent = "Restoring...";
+                try {
+                    const r = await fetch(`/api/archived/${encodeURIComponent(btn.dataset.restore)}/unarchive`, { method: "POST" });
+                    const d = await r.json();
+                    if (d.error) {
+                        alert("Restore failed: " + d.error);
+                        btn.disabled = false;
+                        btn.textContent = "Restore";
+                        return;
+                    }
+                    await loadProjects();
+                    openArchivedModal(); // Refresh the modal list
+                } catch (e) {
+                    console.error("Restore failed:", e);
+                    btn.disabled = false;
+                    btn.textContent = "Restore";
+                }
+            });
+        });
+    } catch (e) {
+        console.error("Failed to load archived projects:", e);
+        list.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-muted);">Failed to load archived projects.</div>';
     }
 }
 

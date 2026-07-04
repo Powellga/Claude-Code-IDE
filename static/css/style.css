@@ -1044,6 +1044,41 @@ html, body {
     margin: 4px 0;
 }
 
+/* ─── Archived Projects Modal ──────────────────────────────────────────── */
+
+.archived-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+}
+.archived-row:last-child { border-bottom: none; }
+.archived-row .archived-info {
+    flex: 1;
+    min-width: 0;
+}
+.archived-row .archived-name {
+    font-size: 13px;
+    color: var(--text-primary);
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.archived-row .archived-desc {
+    font-size: 11px;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.archived-row .archived-restore {
+    flex-shrink: 0;
+    font-size: 11px;
+    padding: 3px 10px;
+}
+
 /* ─── Utilities ────────────────────────────────────────────────────────── */
 
 .hidden { display: none !important; }
