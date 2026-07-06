@@ -1079,6 +1079,28 @@ html, body {
     padding: 3px 10px;
 }
 
+/* ─── Toast Notification ───────────────────────────────────────────────── */
+
+#ide-toast {
+    position: fixed;
+    bottom: 44px;
+    right: 16px;
+    max-width: 380px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+    color: var(--text-primary);
+    font-size: 12px;
+    line-height: 1.5;
+    padding: 10px 14px;
+    z-index: 3000;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+}
+#ide-toast.visible { opacity: 1; }
+
 /* ─── Utilities ────────────────────────────────────────────────────────── */
 
 .hidden { display: none !important; }

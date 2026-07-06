@@ -18,7 +18,7 @@ let claudeMdDirty = false;
 let lastClaudeSessionId = null;
 let lastSessionWorkingDir = null;
 let wasRunningBeforeDisconnect = false;
-let currentPermissionMode = "autoAcceptEdits";
+let currentPermissionMode = localStorage.getItem("permissionMode") || "default";
 let projectFilterMode = "all"; // "all" | "work" | "personal"
 let cachedProjects = [];
 let projectSearchQuery = "";
@@ -336,6 +336,7 @@ function showConnectionStatus(state) {
 // ─── Permission Mode ──────────────────────────────────────────────────────
 
 const PERMISSION_MODES = {
+    default:           { icon: "\u25C6", label: "Default (settings.json)" },
     askPermissions:    { icon: "\u270E", label: "Ask permissions" },
     autoAcceptEdits:   { icon: "</>",    label: "Auto accept edits" },
     planMode:          { icon: "\u2699", label: "Plan mode" },
@@ -364,12 +365,18 @@ function initPermissionMode() {
         menu.style.display = "none";
     });
     menu.addEventListener("click", (e) => e.stopPropagation());
+
+    // Restore the persisted mode (falls back to "default" if the stored
+    // value is stale or unknown)
+    if (!PERMISSION_MODES[currentPermissionMode]) currentPermissionMode = "default";
+    setPermissionMode(currentPermissionMode, { silent: true });
 }
 
-function setPermissionMode(mode) {
-    currentPermissionMode = mode;
+function setPermissionMode(mode, opts = {}) {
     const info = PERMISSION_MODES[mode];
     if (!info) return;
+    currentPermissionMode = mode;
+    localStorage.setItem("permissionMode", mode);
 
     document.getElementById("permission-mode-icon").textContent = info.icon;
     document.getElementById("permission-mode-label").textContent = info.label;
@@ -385,6 +392,27 @@ function setPermissionMode(mode) {
             check.textContent = "";
         }
     });
+
+    // The mode is applied as CLI flags when a session spawns, so a change
+    // never affects the session that is already running - tell the user.
+    if (!opts.silent && isTerminalRunning) {
+        showToast(`"${info.label}" saved - it applies to the NEXT session. Press Shift+Tab inside the terminal to change the running session's mode.`, 6000);
+    }
+}
+
+// \u2500\u2500\u2500 Toast Notifications \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
+function showToast(message, duration = 4000) {
+    let toast = document.getElementById("ide-toast");
+    if (!toast) {
+        toast = document.createElement("div");
+        toast.id = "ide-toast";
+        document.body.appendChild(toast);
+    }
+    toast.textContent = message;
+    toast.classList.add("visible");
+    clearTimeout(showToast._timer);
+    showToast._timer = setTimeout(() => toast.classList.remove("visible"), duration);
 }
 
 // ─── UI Initialization ────────────────────────────────────────────────────

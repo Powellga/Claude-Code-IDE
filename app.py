@@ -1545,14 +1545,23 @@ def on_disconnect():
 
 
 def _permission_mode_flags(mode):
-    """Map a permission mode name to Claude Code CLI flags."""
+    """Map a permission mode name to Claude Code CLI flags.
+
+    CLI flags override the user's settings.json, so "default" must send
+    NO flags - that is what lets the user's own defaultMode (e.g.
+    bypassPermissions in ~/.claude/settings.json) take effect.
+    "askPermissions" sends an explicit --permission-mode manual so it
+    forces prompting even when the user's global default is permissive.
+    """
     if mode == "autoAcceptEdits":
         return " --permission-mode acceptEdits"
     elif mode == "planMode":
         return " --permission-mode plan"
     elif mode == "bypassPermissions":
         return " --dangerously-skip-permissions"
-    # "askPermissions" or default: no extra flags
+    elif mode == "askPermissions":
+        return " --permission-mode manual"
+    # "default": no extra flags - the user's settings.json decides
     return ""
 
 

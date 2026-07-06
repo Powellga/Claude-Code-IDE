@@ -34,7 +34,7 @@ This is not a thin wrapper or a chat UI that calls an API. It manages real PTY p
 - **Import External Sessions** — Pull in any Claude Code session from outside the IDE by selecting from a list or pasting a UUID; creates a new project with the session immediately resumable
 - **Session UUID Display** — View and copy session UUIDs from the session viewer toolbar for use with `claude --resume` outside the IDE
 - **Auto-Generated CLAUDE.md** — New projects get a minimal CLAUDE.md with project name, description, and working directory (IDE-level instructions live in the global `~/.claude/CLAUDE.md`)
-- **Permission Mode** — Status bar dropdown below the terminal lets you switch between Ask Permissions, Auto Accept Edits, Plan Mode, and Bypass Permissions before starting or resuming a session
+- **Permission Mode** — Status bar dropdown below the terminal with five modes: Default (uses the `defaultMode` from your own Claude Code settings.json), Ask Permissions, Auto Accept Edits, Plan Mode, and Bypass Permissions. The selection is remembered across page reloads and applies to the next session you start or resume - changing it while a session is running shows a reminder toast (use Shift+Tab inside the terminal to switch a live session). Note that Auto Accept Edits only auto-approves file edits; other actions like shell commands still prompt, which is Claude Code's own behavior for that mode
 - **Open in Explorer** — Click the folder icon in the file tree header to open the project's working directory in your system file manager
 - **Clipboard Support** — Ctrl+C copies selected terminal text; Ctrl+V pastes without double-paste issues
 - **Kill Server** — Stop the IDE server from within the Settings modal when you need to restart
@@ -265,6 +265,7 @@ The IDE drives Claude Code, which connects to **MCP servers** for browser automa
 - [x] Phase 16: Project search bar, per-project live URLs with tab-bar navigate button (single URL or dropdown), Copy UUID context menu on sessions
 - [x] Phase 17: Sessions auto-routed to the correct project on save based on the session's working directory (no more drift from sidebar selection); project-switch blocked while a terminal is running
 - [x] Phase 18: Project archiving (archive/restore with dedicated modal), three-state work/personal filter, and a bug-fix pass: repaired the Compare tab (parameter mismatch), git repo detection, non-ASCII git diffs, Plan mode CLI flag, duplicate-project metadata overwrite, corrupt project.json crash, and session-highlight in the sidebar; consolidated all project metadata I/O into UTF-8-safe helpers
+- [x] Phase 19: Permission mode overhaul - selection persists across page reloads (was silently resetting to Auto Accept Edits), new Default mode that sends no CLI flags so the user's settings.json `defaultMode` is no longer overridden, Ask Permissions now maps to `--permission-mode manual`, and a toast notice that mode changes apply to the next session (Shift+Tab switches a live one)
 
 ## How Is This Different from Claude Desktop?
 

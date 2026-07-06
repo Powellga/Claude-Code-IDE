@@ -87,6 +87,7 @@ The backend is one file organized into labeled sections:
 
 Vanilla JS, no build step. Key patterns:
 - All state is in module-level variables (e.g., `currentProject`, `term`, `socket`)
+- Permission mode: persisted in `localStorage` (key `permissionMode`, default `"default"`). Modes become CLI flags only at session spawn via `_permission_mode_flags()` in app.py - `"default"` sends NO flags so the user's settings.json `defaultMode` applies (CLI flags override settings files, so never send flags unless the user explicitly picked a mode). Changing the selector never affects an already-running session; the UI shows a toast saying so
 - Socket.IO events for terminal I/O: `terminal_output`, `terminal_input`, `terminal_ready`, `terminal_exit`
 - REST calls via `fetch()` to `/api/*` endpoints
 - Context menus built dynamically on right-click for projects and sessions
