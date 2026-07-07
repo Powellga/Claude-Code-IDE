@@ -1570,7 +1570,9 @@ def on_start_terminal(data):
     """Start a new Claude Code terminal session."""
     sid = request.sid
     project = data.get("project")
-    permission_mode = data.get("permission_mode", "askPermissions")
+    # Fall back to "default" (no CLI flags) when the field is missing, e.g. a
+    # stale cached frontend - never force prompting unless explicitly chosen.
+    permission_mode = data.get("permission_mode", "default")
     project_path = None
 
     if project:
@@ -1602,7 +1604,7 @@ def on_resume_session(data):
     sid = request.sid
     project = data.get("project")
     claude_session_id = data.get("claude_session_id", "")
-    permission_mode = data.get("permission_mode", "askPermissions")
+    permission_mode = data.get("permission_mode", "default")
     session_wd = data.get("working_directory", "")
     project_path = None
 

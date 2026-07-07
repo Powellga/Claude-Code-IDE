@@ -172,7 +172,7 @@ function initTerminal() {
         if (e.key === "c" || e.key === "C") {
             const selection = terminal.getSelection();
             if (selection) {
-                navigator.clipboard.writeText(selection).catch(() => {});
+                copyTextToClipboard(selection);
                 return false;
             }
             return true;
@@ -191,6 +191,48 @@ function initTerminal() {
         }
 
         return true;
+    });
+
+    // OSC 52 clipboard bridge. Claude Code's TUI captures the mouse
+    // (\x1b[?1003h), renders its OWN selection highlight on drag, and "copies"
+    // it by emitting OSC 52 (\x1b]52;c;<base64>) - that is what its
+    // "copied N chars to clipboard" message refers to. Real terminals translate
+    // OSC 52 into a system clipboard write; xterm.js ignores it by default, so
+    // without this handler the copy silently goes nowhere.
+    terminal.parser.registerOscHandler(52, (data) => {
+        // Payload is "<selector>;<base64>", e.g. "c;SGVsbG8=". A payload of
+        // "?" is a clipboard-read query - ignore those, only handle writes.
+        const semi = data.indexOf(";");
+        const payload = semi >= 0 ? data.slice(semi + 1) : data;
+        if (!payload || payload === "?") return true;
+        try {
+            const bytes = Uint8Array.from(atob(payload), (c) => c.charCodeAt(0));
+            const text = new TextDecoder().decode(bytes);
+            if (text) copyTextToClipboard(text);
+        } catch (e) { /* malformed base64 - nothing to copy */ }
+        return true;
+    });
+
+    // Copy-on-select for when the TUI is NOT capturing the mouse (welcome
+    // screen, plain shell): a normal drag selects in xterm, and the selection
+    // is copied automatically.
+    //
+    // IMPORTANT: with any-motion tracking (?1003h) every mouse move sends a
+    // report, which xterm counts as user input and uses to clear the selection
+    // instantly. So the selection text must be captured HERE, at the moment the
+    // selection event fires - by the time the debounce runs (or the user
+    // presses Ctrl+C) terminal.getSelection() is usually already empty.
+    let copyOnSelectTimer = null;
+    let capturedSelection = "";
+    terminal.onSelectionChange(() => {
+        const sel = terminal.getSelection();
+        if (!sel) return; // ignore the clear event - keep the captured text
+        capturedSelection = sel;
+        // Debounce: fires continuously while dragging - copy once it settles
+        clearTimeout(copyOnSelectTimer);
+        copyOnSelectTimer = setTimeout(() => {
+            if (capturedSelection) copyTextToClipboard(capturedSelection);
+        }, 200);
     });
 
     // Send keystrokes and right-click paste to server.
@@ -230,7 +272,40 @@ function initTerminal() {
     // Welcome message
     terminal.writeln("\x1b[1;36m  ⚡ Claude Code IDE\x1b[0m");
     terminal.writeln("\x1b[90m  Click \"Start Claude Code\" to begin a session.\x1b[0m");
+    terminal.writeln("\x1b[90m  Tip: drag over text to select it - it is copied to the clipboard automatically.\x1b[0m");
     terminal.writeln("");
+}
+
+// Copy text to the clipboard, falling back to a hidden textarea +
+// execCommand when the async Clipboard API is unavailable (e.g. the IDE
+// is opened over a non-localhost address, which is not a secure context).
+function copyTextToClipboard(text) {
+    const notify = () => showToast("Copied to clipboard", 1500);
+    const fail = (why) => showToast("Copy failed" + (why ? ": " + why : ""), 3000);
+    if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(notify).catch((e) => {
+            if (fallbackCopyText(text)) notify();
+            else fail(e && e.name);
+        });
+    } else if (fallbackCopyText(text)) {
+        notify();
+    } else {
+        fail("clipboard unavailable");
+    }
+}
+
+function fallbackCopyText(text) {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand("copy"); } catch (e) { /* unsupported */ }
+    ta.remove();
+    if (terminal) terminal.focus();
+    return ok;
 }
 
 // ─── Terminal Controls ─────────────────────────────────────────────────────

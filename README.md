@@ -240,6 +240,9 @@ The IDE drives Claude Code, which connects to **MCP servers** for browser automa
 
 | Shortcut | Action |
 |----------|--------|
+| Mouse drag | Copy terminal text to clipboard. While Claude Code is running, its TUI owns the selection ("copied N chars to clipboard") and the IDE bridges it to the real clipboard via OSC 52; otherwise a normal xterm selection is auto-copied |
+| `Ctrl+C` | Copy selection if one exists, otherwise sent to the terminal (SIGINT) |
+| `Ctrl+V` | Paste clipboard into the terminal |
 | `Ctrl+Shift+F` | Open search |
 | `Ctrl+S` | Save CLAUDE.md (when editor tab is active) |
 | `Escape` | Close modals |
@@ -266,6 +269,7 @@ The IDE drives Claude Code, which connects to **MCP servers** for browser automa
 - [x] Phase 17: Sessions auto-routed to the correct project on save based on the session's working directory (no more drift from sidebar selection); project-switch blocked while a terminal is running
 - [x] Phase 18: Project archiving (archive/restore with dedicated modal), three-state work/personal filter, and a bug-fix pass: repaired the Compare tab (parameter mismatch), git repo detection, non-ASCII git diffs, Plan mode CLI flag, duplicate-project metadata overwrite, corrupt project.json crash, and session-highlight in the sidebar; consolidated all project metadata I/O into UTF-8-safe helpers
 - [x] Phase 19: Permission mode overhaul - selection persists across page reloads (was silently resetting to Auto Accept Edits), new Default mode that sends no CLI flags so the user's settings.json `defaultMode` is no longer overridden, Ask Permissions now maps to `--permission-mode manual`, and a toast notice that mode changes apply to the next session (Shift+Tab switches a live one)
+- [x] Phase 20: Terminal copy finally works - OSC 52 clipboard bridge (Claude Code's TUI captures the mouse and "copies" selections via OSC 52, which xterm.js ignores by default; the IDE now decodes it and writes the real Windows clipboard), copy-on-select with toast when the TUI isn't capturing the mouse, visible copy-failure toasts, hidden-textarea fallback for non-secure origins, cache-busted app.js, and missing permission_mode now falls back to Default instead of forcing prompts
 
 ## How Is This Different from Claude Desktop?
 
