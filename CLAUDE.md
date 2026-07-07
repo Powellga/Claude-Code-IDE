@@ -75,18 +75,19 @@ The backend is one file organized into labeled sections:
 
 1. **Admin Elevation** (lines ~25-68) - Auto-elevates to admin via UAC on Windows startup
 2. **Configuration** (lines ~70-83) - `BASE_DIR`, `DATA_DIR`, `PROJECTS_DIR`, env vars
-3. **Flask App** (lines ~85-92) - App + SocketIO init, `active_terminals` dict
+3. **Flask App** (lines ~85-92) - App + SocketIO init, `active_terminals` dict keyed by `terminal_id` (NOT socket sid - one browser page can hold up to 8 concurrent session tabs; each entry stores its owning `sid` for output routing and disconnect cleanup)
 4. **Terminal Management** (lines ~95-277) - `_spawn_terminal()`, `_write_to_terminal()`, `_kill_terminal()` with three backends: winpty, pty, subprocess
 5. **Session Persistence** (lines ~280-373) - Save/load/list sessions, `_clean_transcript()` via pyte
 6. **Project Management** (lines ~375-465) - CRUD for projects, auto-creates CLAUDE.md in working dirs
 7. **Settings** (lines ~468-482) - Load/save settings JSON
 8. **REST Routes** (lines ~483-1372) - All `/api/*` endpoints
-9. **WebSocket Events** (lines ~1374-1509) - `start_terminal`, `resume_session`, `terminal_input`, `resize_terminal`, `stop_terminal`, `discard_terminal`
+9. **WebSocket Events** (lines ~1374-1509) - `start_terminal`, `resume_session`, `terminal_input`, `resize_terminal`, `stop_terminal`, `discard_terminal`. Every event carries a `terminal_id` (client-generated for start/resume); `_resolve_terminal_id()` validates ownership and falls back to the connection's only terminal when the field is missing (legacy frontend). Disconnect kills and auto-saves ALL terminals owned by the socket
 
 ## Frontend Structure (app.js)
 
 Vanilla JS, no build step. Key patterns:
-- All state is in module-level variables (e.g., `currentProject`, `term`, `socket`)
+- All state is in module-level variables (e.g., `activeProject`, `socket`)
+- Multi-session tabs: `termSessions` maps `terminal_id` -> session object (own xterm instance, container div, tab element, project, running flag). `activeSess()` returns the active tab's session; toolbar buttons and upload/screenshot/import prompts always target the active tab. A tab captures its project from the sidebar at spawn time - changing the sidebar later never affects a running tab. Never reintroduce a global `terminal`/`isTerminalRunning` singleton
 - Permission mode: persisted in `localStorage` (key `permissionMode`, default `"default"`). Modes become CLI flags only at session spawn via `_permission_mode_flags()` in app.py - `"default"` sends NO flags so the user's settings.json `defaultMode` applies (CLI flags override settings files, so never send flags unless the user explicitly picked a mode). Changing the selector never affects an already-running session; the UI shows a toast saying so
 - Socket.IO events for terminal I/O: `terminal_output`, `terminal_input`, `terminal_ready`, `terminal_exit`
 - REST calls via `fetch()` to `/api/*` endpoints

@@ -96,15 +96,20 @@ active_terminals = {}
 
 # ─── Terminal Management ────────────────────────────────────────────────────
 
-def _spawn_terminal(sid, project_path=None, cmd=None, claude_session_id=None):
+def _spawn_terminal(sid, project_path=None, cmd=None, claude_session_id=None, term_id=None):
     """
     Spawn a Claude Code process in a PTY and wire it to the WebSocket.
 
     On Windows, uses pywinpty. On Unix, uses pty module.
     Falls back to subprocess if PTY is unavailable.
+
+    Terminals are keyed by term_id (not socket sid) so one browser page can
+    hold several concurrent sessions; the owning sid is stored for routing
+    output and for cleanup on disconnect. Returns the term_id, or None.
     """
     import threading
 
+    term_id = term_id or uuid.uuid4().hex
     cwd = project_path or str(Path.home())
     cmd = cmd or CLAUDE_CMD
 
@@ -133,7 +138,7 @@ def _spawn_terminal(sid, project_path=None, cmd=None, claude_session_id=None):
                             data = proc.read(4096)
                             if data:
                                 session_record["raw_output"].append(data)
-                                socketio.emit("terminal_output", {"data": data}, to=sid)
+                                socketio.emit("terminal_output", {"terminal_id": term_id, "data": data}, to=sid)
                         except EOFError:
                             break
                         except Exception:
@@ -141,18 +146,19 @@ def _spawn_terminal(sid, project_path=None, cmd=None, claude_session_id=None):
                 except Exception:
                     pass
                 finally:
-                    socketio.emit("terminal_exit", {"code": 0}, to=sid)
+                    socketio.emit("terminal_exit", {"terminal_id": term_id, "code": 0}, to=sid)
 
             thread = threading.Thread(target=read_output, daemon=True)
             thread.start()
 
-            active_terminals[sid] = {
+            active_terminals[term_id] = {
                 "proc": proc,
                 "thread": thread,
                 "record": session_record,
                 "type": "winpty",
+                "sid": sid,
             }
-            return True
+            return term_id
 
         except ImportError:
             # pywinpty not available, fall back to subprocess
@@ -183,24 +189,25 @@ def _spawn_terminal(sid, project_path=None, cmd=None, claude_session_id=None):
                         data = os.read(master_fd, 4096).decode("utf-8", errors="replace")
                         if data:
                             session_record["raw_output"].append(data)
-                            socketio.emit("terminal_output", {"data": data}, to=sid)
+                            socketio.emit("terminal_output", {"terminal_id": term_id, "data": data}, to=sid)
             except (OSError, ValueError):
                 pass
             finally:
                 os.close(master_fd)
-                socketio.emit("terminal_exit", {"code": proc.returncode or 0}, to=sid)
+                socketio.emit("terminal_exit", {"terminal_id": term_id, "code": proc.returncode or 0}, to=sid)
 
         thread = threading.Thread(target=read_output, daemon=True)
         thread.start()
 
-        active_terminals[sid] = {
+        active_terminals[term_id] = {
             "proc": proc,
             "master_fd": master_fd,
             "thread": thread,
             "record": session_record,
             "type": "pty",
+            "sid": sid,
         }
-        return True
+        return term_id
 
     except (ImportError, OSError):
         # No PTY available — use basic subprocess
@@ -220,27 +227,48 @@ def _spawn_terminal(sid, project_path=None, cmd=None, claude_session_id=None):
                 for line in iter(proc.stdout.readline, b""):
                     data = line.decode("utf-8", errors="replace")
                     session_record["raw_output"].append(data)
-                    socketio.emit("terminal_output", {"data": data}, to=sid)
+                    socketio.emit("terminal_output", {"terminal_id": term_id, "data": data}, to=sid)
             except Exception:
                 pass
             finally:
-                socketio.emit("terminal_exit", {"code": proc.returncode or 0}, to=sid)
+                socketio.emit("terminal_exit", {"terminal_id": term_id, "code": proc.returncode or 0}, to=sid)
 
         thread = threading.Thread(target=read_output, daemon=True)
         thread.start()
 
-        active_terminals[sid] = {
+        active_terminals[term_id] = {
             "proc": proc,
             "thread": thread,
             "record": session_record,
             "type": "subprocess",
+            "sid": sid,
         }
-        return True
+        return term_id
 
 
-def _write_to_terminal(sid, data):
+def _terminal_ids_for_sid(sid):
+    """All terminal ids owned by a socket connection."""
+    return [tid for tid, info in list(active_terminals.items()) if info.get("sid") == sid]
+
+
+def _resolve_terminal_id(sid, data):
+    """Find the terminal a client event refers to.
+
+    Prefers an explicit terminal_id (validated against ownership); falls back
+    to the connection's only terminal so an older cached frontend that sends
+    no id keeps working in single-session mode.
+    """
+    tid = (data or {}).get("terminal_id")
+    if tid:
+        info = active_terminals.get(tid)
+        return tid if info and info.get("sid") == sid else None
+    owned = _terminal_ids_for_sid(sid)
+    return owned[0] if len(owned) == 1 else None
+
+
+def _write_to_terminal(term_id, data):
     """Send keyboard input to the terminal process."""
-    info = active_terminals.get(sid)
+    info = active_terminals.get(term_id)
     if not info:
         return
 
@@ -257,9 +285,9 @@ def _write_to_terminal(sid, data):
             info["proc"].stdin.flush()
 
 
-def _kill_terminal(sid):
+def _kill_terminal(term_id):
     """Terminate the terminal process and return the session record."""
-    info = active_terminals.pop(sid, None)
+    info = active_terminals.pop(term_id, None)
     if not info:
         return None
 
@@ -1241,12 +1269,13 @@ def api_move_session(project, session_id):
 
 @app.route("/api/sessions/save", methods=["POST"])
 def api_save_current_session():
-    """Manually trigger saving the current terminal session."""
+    """Manually trigger saving a running terminal session."""
     data = request.json
-    sid = data.get("sid")
+    # Terminals are keyed by terminal_id; "sid" accepted as a legacy alias
+    term_id = data.get("terminal_id") or data.get("sid")
     project = data.get("project")
 
-    info = active_terminals.get(sid)
+    info = active_terminals.get(term_id)
     if not info:
         return jsonify({"error": "No active terminal for this session"}), 404
 
@@ -1538,10 +1567,11 @@ def on_connect():
 def on_disconnect():
     sid = request.sid
     print(f"[IDE] Client disconnected: {sid}")
-    record = _kill_terminal(sid)
-    if record:
-        # Auto-save on disconnect
-        save_session(record, record.get("project"))
+    # Kill and auto-save every terminal this connection owned
+    for tid in _terminal_ids_for_sid(sid):
+        record = _kill_terminal(tid)
+        if record:
+            save_session(record, record.get("project"))
 
 
 def _permission_mode_flags(mode):
@@ -1570,6 +1600,7 @@ def on_start_terminal(data):
     """Start a new Claude Code terminal session."""
     sid = request.sid
     project = data.get("project")
+    term_id = data.get("terminal_id") or uuid.uuid4().hex
     # Fall back to "default" (no CLI flags) when the field is missing, e.g. a
     # stale cached frontend - never force prompting unless explicitly chosen.
     permission_mode = data.get("permission_mode", "default")
@@ -1586,16 +1617,17 @@ def on_start_terminal(data):
     claude_session_id = str(uuid.uuid4())
     cmd = f"{CLAUDE_CMD} --session-id {claude_session_id}{_permission_mode_flags(permission_mode)}"
 
-    success = _spawn_terminal(sid, project_path, cmd=cmd, claude_session_id=claude_session_id)
-    if success:
-        active_terminals[sid]["record"]["project"] = project
+    spawned = _spawn_terminal(sid, project_path, cmd=cmd, claude_session_id=claude_session_id, term_id=term_id)
+    if spawned:
+        active_terminals[spawned]["record"]["project"] = project
         emit("terminal_ready", {
             "status": "ok",
+            "terminal_id": spawned,
             "claude_session_id": claude_session_id,
             "working_directory": project_path or str(Path.home()),
         })
     else:
-        emit("terminal_error", {"message": "Failed to spawn terminal"})
+        emit("terminal_error", {"terminal_id": term_id, "message": "Failed to spawn terminal"})
 
 
 @socketio.on("resume_session")
@@ -1603,6 +1635,7 @@ def on_resume_session(data):
     """Resume a previous session using Claude Code's native --resume flag."""
     sid = request.sid
     project = data.get("project")
+    term_id = data.get("terminal_id") or uuid.uuid4().hex
     claude_session_id = data.get("claude_session_id", "")
     permission_mode = data.get("permission_mode", "default")
     session_wd = data.get("working_directory", "")
@@ -1628,29 +1661,32 @@ def on_resume_session(data):
                 project_path = wd
 
     cmd = f"{CLAUDE_CMD} --resume {claude_session_id}{_permission_mode_flags(permission_mode)}"
-    success = _spawn_terminal(sid, project_path, cmd=cmd, claude_session_id=claude_session_id)
-    if success:
-        active_terminals[sid]["record"]["project"] = project
+    spawned = _spawn_terminal(sid, project_path, cmd=cmd, claude_session_id=claude_session_id, term_id=term_id)
+    if spawned:
+        active_terminals[spawned]["record"]["project"] = project
         emit("terminal_ready", {
             "status": "ok",
+            "terminal_id": spawned,
             "claude_session_id": claude_session_id,
             "working_directory": project_path or str(Path.home()),
         })
     else:
-        emit("terminal_error", {"message": "Failed to spawn terminal"})
+        emit("terminal_error", {"terminal_id": term_id, "message": "Failed to spawn terminal"})
 
 
 @socketio.on("terminal_input")
 def on_terminal_input(data):
     """Receive keyboard input from the browser terminal."""
-    _write_to_terminal(request.sid, data.get("data", ""))
+    tid = _resolve_terminal_id(request.sid, data)
+    if tid:
+        _write_to_terminal(tid, data.get("data", ""))
 
 
 @socketio.on("resize_terminal")
 def on_resize(data):
     """Handle terminal resize events."""
-    sid = request.sid
-    info = active_terminals.get(sid)
+    tid = _resolve_terminal_id(request.sid, data)
+    info = active_terminals.get(tid) if tid else None
     if not info:
         return
     rows = data.get("rows", 24)
@@ -1670,23 +1706,26 @@ def on_resize(data):
 
 @socketio.on("stop_terminal")
 def on_stop_terminal(data):
-    """Stop the current terminal and save the session."""
+    """Stop a terminal and save its session."""
     sid = request.sid
     project = data.get("project")
-    record = _kill_terminal(sid)
+    tid = _resolve_terminal_id(sid, data)
+    record = _kill_terminal(tid) if tid else None
     if record:
         record["summary"] = data.get("summary", "")
         record["tags"] = data.get("tags", [])
         filepath = save_session(record, project)
-        emit("session_saved", {"filepath": filepath, "id": record["id"]})
+        emit("session_saved", {"terminal_id": tid, "filepath": filepath, "id": record["id"]})
 
 
 @socketio.on("discard_terminal")
 def on_discard_terminal(data):
-    """Stop the current terminal without saving."""
+    """Stop a terminal without saving."""
     sid = request.sid
-    _kill_terminal(sid)  # Kill process, discard the record
-    print(f"[IDE] Session discarded by user: {sid}")
+    tid = _resolve_terminal_id(sid, data)
+    if tid:
+        _kill_terminal(tid)  # Kill process, discard the record
+        print(f"[IDE] Session discarded by user: {sid} terminal {tid}")
 
 
 # ─── Entry Point ────────────────────────────────────────────────────────────

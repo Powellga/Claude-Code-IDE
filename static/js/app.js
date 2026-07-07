@@ -8,27 +8,35 @@
 // ─── State ─────────────────────────────────────────────────────────────────
 
 let socket = null;
-let terminal = null;
-let fitAddon = null;
-let isTerminalRunning = false;
+// Session tabs: terminal_id -> { id, term, fitAddon, containerEl, tabEl,
+// project, running, claudeSessionId, workingDirectory, wasRunningBeforeDisconnect }
+let termSessions = {};
+let activeTermId = null;
+let pendingStopTermId = null;   // tab being stopped via the save modal
+let legacySingleSession = false; // server predates terminal ids (needs restart)
+const MAX_SESSION_TABS = 8;
 let activeProject = null;
 let activeSessionId = null;
 let viewedSessionProject = null;
 let claudeMdDirty = false;
-let lastClaudeSessionId = null;
-let lastSessionWorkingDir = null;
-let wasRunningBeforeDisconnect = false;
 let currentPermissionMode = localStorage.getItem("permissionMode") || "default";
 let projectFilterMode = "all"; // "all" | "work" | "personal"
 let cachedProjects = [];
 let projectSearchQuery = "";
-let suppressProjectSwitchGuard = false;
+
+function activeSess() {
+    return termSessions[activeTermId] || null;
+}
+
+function anyRunning() {
+    return Object.values(termSessions).some(s => s.running);
+}
 
 // ─── Initialize ────────────────────────────────────────────────────────────
 
 document.addEventListener("DOMContentLoaded", () => {
     initSocket();
-    initTerminal();
+    initSessionTabs();
     initUI();
     loadProjects();
     applyStartupSettings();
@@ -49,25 +57,28 @@ function initSocket() {
         console.log("[IDE] Connected to server");
         showConnectionStatus("connected");
 
-        // Auto-resume if we were running before disconnect
-        if (wasRunningBeforeDisconnect && lastClaudeSessionId && activeProject) {
-            wasRunningBeforeDisconnect = false;
-            terminal.writeln("\r\n\x1b[33m  ⚡ Server restarted — auto-resuming session...\x1b[0m\r\n");
-            socket.emit("resume_session", {
-                project: activeProject,
-                claude_session_id: lastClaudeSessionId,
-                working_directory: lastSessionWorkingDir || "",
-                permission_mode: currentPermissionMode,
-            });
+        // Auto-resume every tab that was running before the disconnect
+        for (const sess of Object.values(termSessions)) {
+            if (sess.wasRunningBeforeDisconnect && sess.claudeSessionId) {
+                sess.wasRunningBeforeDisconnect = false;
+                sess.term.writeln("\r\n\x1b[33m  ⚡ Server restarted — auto-resuming session...\x1b[0m\r\n");
+                socket.emit("resume_session", {
+                    terminal_id: sess.id,
+                    project: sess.project,
+                    claude_session_id: sess.claudeSessionId,
+                    working_directory: sess.workingDirectory || "",
+                    permission_mode: currentPermissionMode,
+                });
+            }
         }
     });
 
     socket.on("disconnect", () => {
         console.log("[IDE] Disconnected");
-        if (isTerminalRunning) {
-            wasRunningBeforeDisconnect = true;
+        for (const sess of Object.values(termSessions)) {
+            if (sess.running) sess.wasRunningBeforeDisconnect = true;
+            setSessRunning(sess, false);
         }
-        setTerminalStopped();
         showConnectionStatus("disconnected");
     });
 
@@ -76,31 +87,35 @@ function initSocket() {
     });
 
     socket.on("terminal_ready", (msg) => {
-        console.log("[IDE] Terminal ready");
-        if (msg && msg.claude_session_id) {
-            lastClaudeSessionId = msg.claude_session_id;
+        const sess = routeSess(msg);
+        if (!sess) return;
+        if (msg && !msg.terminal_id && !legacySingleSession) {
+            legacySingleSession = true;
+            showToast("Server is running the pre-multi-tab backend. Restart the server to enable multiple session tabs.", 6000);
         }
-        if (msg && msg.working_directory) {
-            lastSessionWorkingDir = msg.working_directory;
-        }
-        setTerminalRunning();
-        terminal.focus();
+        if (msg && msg.claude_session_id) sess.claudeSessionId = msg.claude_session_id;
+        if (msg && msg.working_directory) sess.workingDirectory = msg.working_directory;
+        setSessRunning(sess, true);
+        if (sess.id === activeTermId) sess.term.focus();
     });
 
     socket.on("terminal_output", (msg) => {
-        if (terminal && msg.data) {
-            terminal.write(msg.data);
-        }
+        const sess = routeSess(msg);
+        if (sess && msg.data) sess.term.write(msg.data);
     });
 
     socket.on("terminal_exit", (msg) => {
-        terminal.writeln("\r\n\x1b[90m── Session ended ──\x1b[0m\r\n");
-        setTerminalStopped();
+        const sess = routeSess(msg);
+        if (!sess) return;
+        sess.term.writeln("\r\n\x1b[90m── Session ended ──\x1b[0m\r\n");
+        setSessRunning(sess, false);
     });
 
     socket.on("terminal_error", (msg) => {
-        terminal.writeln(`\r\n\x1b[31mError: ${msg.message}\x1b[0m\r\n`);
-        setTerminalStopped();
+        const sess = routeSess(msg);
+        if (!sess) return;
+        sess.term.writeln(`\r\n\x1b[31mError: ${msg.message}\x1b[0m\r\n`);
+        setSessRunning(sess, false);
     });
 
     socket.on("session_saved", (msg) => {
@@ -112,33 +127,168 @@ function initSocket() {
     });
 }
 
+// Route a server event to its session tab. Events from a legacy backend
+// carry no terminal_id - fall back to the active tab so single-session
+// use keeps working until the server is restarted.
+function routeSess(msg) {
+    if (msg && msg.terminal_id) return termSessions[msg.terminal_id] || null;
+    return activeSess();
+}
+
 // ─── Terminal (xterm.js) ───────────────────────────────────────────────────
 
-function initTerminal() {
-    terminal = new Terminal({
-        theme: {
-            background: "#1e1e1e",
-            foreground: "#cccccc",
-            cursor: "#aeafad",
-            cursorAccent: "#1e1e1e",
-            selectionBackground: "#264f78",
-            black: "#1e1e1e",
-            red: "#f44747",
-            green: "#4ec9b0",
-            yellow: "#dcdcaa",
-            blue: "#569cd6",
-            magenta: "#c586c0",
-            cyan: "#9cdcfe",
-            white: "#d4d4d4",
-            brightBlack: "#808080",
-            brightRed: "#f44747",
-            brightGreen: "#4ec9b0",
-            brightYellow: "#dcdcaa",
-            brightBlue: "#569cd6",
-            brightMagenta: "#c586c0",
-            brightCyan: "#9cdcfe",
-            brightWhite: "#e7e7e7",
-        },
+const TERMINAL_THEME = {
+    background: "#1e1e1e",
+    foreground: "#cccccc",
+    cursor: "#aeafad",
+    cursorAccent: "#1e1e1e",
+    selectionBackground: "#264f78",
+    black: "#1e1e1e",
+    red: "#f44747",
+    green: "#4ec9b0",
+    yellow: "#dcdcaa",
+    blue: "#569cd6",
+    magenta: "#c586c0",
+    cyan: "#9cdcfe",
+    white: "#d4d4d4",
+    brightBlack: "#808080",
+    brightRed: "#f44747",
+    brightGreen: "#4ec9b0",
+    brightYellow: "#dcdcaa",
+    brightBlue: "#569cd6",
+    brightMagenta: "#c586c0",
+    brightCyan: "#9cdcfe",
+    brightWhite: "#e7e7e7",
+};
+
+function initSessionTabs() {
+    document.getElementById("btn-new-session-tab").addEventListener("click", () => newSessionTab());
+    newSessionTab(); // the initial tab
+}
+
+function newSessionTab() {
+    const count = Object.keys(termSessions).length;
+    if (count >= MAX_SESSION_TABS) {
+        showToast(`Tab limit reached (${MAX_SESSION_TABS}). Close a tab first.`, 4000);
+        return null;
+    }
+    if (legacySingleSession && count >= 1) {
+        showToast("The server is running the pre-multi-tab backend. Restart the server (start-ide.bat) to enable multiple tabs.", 6000);
+        return null;
+    }
+
+    const id = (window.crypto && crypto.randomUUID)
+        ? crypto.randomUUID().replace(/-/g, "")
+        : Date.now().toString(36) + Math.random().toString(36).slice(2);
+
+    const containerEl = document.createElement("div");
+    containerEl.className = "term-instance";
+    containerEl.style.display = "none";
+    document.getElementById("terminal-container").appendChild(containerEl);
+
+    const tabEl = document.createElement("div");
+    tabEl.className = "session-tab";
+    tabEl.dataset.termId = id;
+    tabEl.innerHTML =
+        '<span class="session-tab-dot idle"></span>' +
+        '<span class="session-tab-label">new tab</span>' +
+        '<span class="session-tab-close" title="Close tab">×</span>';
+    tabEl.addEventListener("click", (e) => {
+        if (e.target.classList.contains("session-tab-close")) {
+            closeSessionTab(id);
+            return;
+        }
+        activateSessionTab(id);
+    });
+    document.getElementById("session-tabs").appendChild(tabEl);
+
+    const sess = {
+        id,
+        term: null,
+        fitAddon: null,
+        containerEl,
+        tabEl,
+        project: null,
+        running: false,
+        claudeSessionId: null,
+        workingDirectory: null,
+        wasRunningBeforeDisconnect: false,
+    };
+    termSessions[id] = sess;
+    buildTerminalInstance(sess);
+    activateSessionTab(id);
+    return sess;
+}
+
+function activateSessionTab(id) {
+    const sess = termSessions[id];
+    if (!sess) return;
+    activeTermId = id;
+    for (const s of Object.values(termSessions)) {
+        const active = s.id === id;
+        s.containerEl.style.display = active ? "" : "none";
+        s.tabEl.classList.toggle("active", active);
+    }
+    setTimeout(() => { try { sess.fitAddon.fit(); } catch (e) { /* hidden */ } }, 30);
+    refreshTerminalToolbar();
+    sess.term.focus();
+}
+
+function closeSessionTab(id) {
+    const sess = termSessions[id];
+    if (!sess) return;
+    if (sess.running) {
+        activateSessionTab(id);
+        showToast("This tab has a running session - use Stop & Save or Discard first.", 4000);
+        return;
+    }
+    sess.containerEl.remove();
+    sess.tabEl.remove();
+    try { sess.term.dispose(); } catch (e) { /* already gone */ }
+    delete termSessions[id];
+    if (activeTermId === id) {
+        activeTermId = null;
+        const remaining = Object.keys(termSessions);
+        if (remaining.length) activateSessionTab(remaining[remaining.length - 1]);
+        else newSessionTab();
+    }
+}
+
+function updateSessionTabEl(sess) {
+    let name = "new tab";
+    if (sess.project) {
+        const p = cachedProjects.find(x => x.name === sess.project);
+        name = (p && (p.display_name || p.name)) || sess.project;
+    } else if (sess.running || sess.claudeSessionId) {
+        name = "no project";
+    }
+    sess.tabEl.querySelector(".session-tab-label").textContent = name;
+    sess.tabEl.title = name + (sess.running ? " (running)" : "");
+    sess.tabEl.querySelector(".session-tab-dot").className =
+        "session-tab-dot " + (sess.running ? "running" : "idle");
+}
+
+function setSessRunning(sess, running) {
+    sess.running = running;
+    updateSessionTabEl(sess);
+    refreshTerminalToolbar();
+}
+
+// Toolbar buttons and the status dot always reflect the ACTIVE tab
+function refreshTerminalToolbar() {
+    const sess = activeSess();
+    const running = !!(sess && sess.running);
+    document.getElementById("btn-start").style.display = running ? "none" : "";
+    document.getElementById("btn-stop").style.display = running ? "" : "none";
+    document.getElementById("btn-discard").style.display = running ? "" : "none";
+    const status = document.getElementById("terminal-status");
+    status.classList.toggle("running", running);
+    status.classList.toggle("stopped", !running);
+}
+
+function buildTerminalInstance(sess) {
+    const term = new Terminal({
+        theme: TERMINAL_THEME,
         fontFamily: '"Cascadia Code", "Consolas", "Courier New", monospace',
         fontSize: 14,
         lineHeight: 1.3,
@@ -147,30 +297,29 @@ function initTerminal() {
         scrollback: 10000,
         allowProposedApi: true,
     });
+    sess.term = term;
 
-    fitAddon = new FitAddon.FitAddon();
-    terminal.loadAddon(fitAddon);
+    sess.fitAddon = new FitAddon.FitAddon();
+    term.loadAddon(sess.fitAddon);
 
     try {
         const webLinksAddon = new WebLinksAddon.WebLinksAddon();
-        terminal.loadAddon(webLinksAddon);
+        term.loadAddon(webLinksAddon);
     } catch (e) { /* optional */ }
 
-    const container = document.getElementById("terminal-container");
-    terminal.open(container);
-    fitAddon.fit();
+    term.open(sess.containerEl);
 
     // Track when Ctrl+V fires so onData can skip the duplicate bracket-paste.
     // Uses a short timeout instead of a persistent flag — auto-expires in 200ms
     // so it can never permanently block input.
     let ctrlVJustFired = false;
 
-    terminal.attachCustomKeyEventHandler((e) => {
+    term.attachCustomKeyEventHandler((e) => {
         if (e.type !== "keydown" || !e.ctrlKey) return true;
 
         // Ctrl+C: if text is selected, copy it; otherwise let SIGINT pass through
         if (e.key === "c" || e.key === "C") {
-            const selection = terminal.getSelection();
+            const selection = term.getSelection();
             if (selection) {
                 copyTextToClipboard(selection);
                 return false;
@@ -183,8 +332,8 @@ function initTerminal() {
             ctrlVJustFired = true;
             setTimeout(() => { ctrlVJustFired = false; }, 200);
             navigator.clipboard.readText().then(text => {
-                if (text && isTerminalRunning && socket) {
-                    socket.emit("terminal_input", { data: text });
+                if (text && sess.running && socket) {
+                    socket.emit("terminal_input", { terminal_id: sess.id, data: text });
                 }
             }).catch(() => {});
             return false;
@@ -199,7 +348,7 @@ function initTerminal() {
     // "copied N chars to clipboard" message refers to. Real terminals translate
     // OSC 52 into a system clipboard write; xterm.js ignores it by default, so
     // without this handler the copy silently goes nowhere.
-    terminal.parser.registerOscHandler(52, (data) => {
+    term.parser.registerOscHandler(52, (data) => {
         // Payload is "<selector>;<base64>", e.g. "c;SGVsbG8=". A payload of
         // "?" is a clipboard-read query - ignore those, only handle writes.
         const semi = data.indexOf(";");
@@ -221,11 +370,11 @@ function initTerminal() {
     // report, which xterm counts as user input and uses to clear the selection
     // instantly. So the selection text must be captured HERE, at the moment the
     // selection event fires - by the time the debounce runs (or the user
-    // presses Ctrl+C) terminal.getSelection() is usually already empty.
+    // presses Ctrl+C) term.getSelection() is usually already empty.
     let copyOnSelectTimer = null;
     let capturedSelection = "";
-    terminal.onSelectionChange(() => {
-        const sel = terminal.getSelection();
+    term.onSelectionChange(() => {
+        const sel = term.getSelection();
         if (!sel) return; // ignore the clear event - keep the captured text
         capturedSelection = sel;
         // Debounce: fires continuously while dragging - copy once it settles
@@ -238,8 +387,8 @@ function initTerminal() {
     // Send keystrokes and right-click paste to server.
     // Right-click paste arrives as bracket-paste sequences — strip wrappers, send content.
     // Ctrl+V paste is handled above; if ctrlVJustFired, skip bracket-paste to avoid double.
-    terminal.onData((data) => {
-        if (!isTerminalRunning || !socket) return;
+    term.onData((data) => {
+        if (!sess.running || !socket) return;
 
         const hasBracketPaste = data.includes("\x1b[200~") || data.includes("\x1b[201~");
 
@@ -248,32 +397,32 @@ function initTerminal() {
             if (ctrlVJustFired) return;
             // Right-click paste — strip wrappers and send
             const cleaned = data.replace(/\x1b\[200~/g, "").replace(/\x1b\[201~/g, "");
-            if (cleaned) socket.emit("terminal_input", { data: cleaned });
+            if (cleaned) socket.emit("terminal_input", { terminal_id: sess.id, data: cleaned });
             return;
         }
 
-        socket.emit("terminal_input", { data });
+        socket.emit("terminal_input", { terminal_id: sess.id, data });
     });
 
-    // Handle resize
+    // Refit when the container resizes (only meaningful while visible)
     const resizeObserver = new ResizeObserver(() => {
-        if (fitAddon) {
-            fitAddon.fit();
-            if (isTerminalRunning && socket) {
-                socket.emit("resize_terminal", {
-                    rows: terminal.rows,
-                    cols: terminal.cols,
-                });
-            }
+        if (!sess.fitAddon || sess.containerEl.style.display === "none") return;
+        try { sess.fitAddon.fit(); } catch (e) { return; }
+        if (sess.running && socket) {
+            socket.emit("resize_terminal", {
+                terminal_id: sess.id,
+                rows: term.rows,
+                cols: term.cols,
+            });
         }
     });
-    resizeObserver.observe(container);
+    resizeObserver.observe(sess.containerEl);
 
     // Welcome message
-    terminal.writeln("\x1b[1;36m  ⚡ Claude Code IDE\x1b[0m");
-    terminal.writeln("\x1b[90m  Click \"Start Claude Code\" to begin a session.\x1b[0m");
-    terminal.writeln("\x1b[90m  Tip: drag over text to select it - it is copied to the clipboard automatically.\x1b[0m");
-    terminal.writeln("");
+    term.writeln("\x1b[1;36m  ⚡ Claude Code IDE\x1b[0m");
+    term.writeln("\x1b[90m  Click \"Start Claude Code\" to begin a session.\x1b[0m");
+    term.writeln("\x1b[90m  Tip: drag over text to select it - it is copied to the clipboard automatically.\x1b[0m");
+    term.writeln("");
 }
 
 // Copy text to the clipboard, falling back to a hidden textarea +
@@ -304,30 +453,52 @@ function fallbackCopyText(text) {
     let ok = false;
     try { ok = document.execCommand("copy"); } catch (e) { /* unsupported */ }
     ta.remove();
-    if (terminal) terminal.focus();
+    const sess = activeSess();
+    if (sess) sess.term.focus();
     return ok;
 }
 
 // ─── Terminal Controls ─────────────────────────────────────────────────────
 
 function startTerminal() {
-    if (isTerminalRunning) return;
+    const sess = activeSess();
+    if (!sess || sess.running) return;
 
-    terminal.clear();
-    terminal.writeln("\x1b[90m  Starting Claude Code...\x1b[0m\r\n");
+    // Bind the sidebar-selected project to THIS tab at spawn time. Changing
+    // the sidebar selection later never affects a running tab.
+    sess.project = activeProject;
+    updateSessionTabEl(sess);
 
-    socket.emit("start_terminal", { project: activeProject, permission_mode: currentPermissionMode });
+    // Two Claude sessions in the same working directory can stomp each
+    // other's files - allowed, but say so.
+    const clash = Object.values(termSessions).some(
+        s => s !== sess && s.running && s.project && s.project === sess.project
+    );
+    if (clash) {
+        showToast("Another running tab uses this project's directory - two sessions editing the same files can conflict.", 6000);
+    }
+
+    sess.term.clear();
+    sess.term.writeln("\x1b[90m  Starting Claude Code...\x1b[0m\r\n");
+
+    socket.emit("start_terminal", {
+        terminal_id: sess.id,
+        project: sess.project,
+        permission_mode: currentPermissionMode,
+    });
 }
 
 async function stopTerminal() {
-    if (!isTerminalRunning) return;
+    const sess = activeSess();
+    if (!sess || !sess.running) return;
+    pendingStopTermId = sess.id;
 
     // Populate save modal's project selector from the current project list
     try {
         const resp = await fetch("/api/projects");
         const projects = await resp.json();
         const sel = document.getElementById("save-project-select");
-        const currentProject = activeProject || "";
+        const currentProject = sess.project || "";
         sel.innerHTML = '<option value="">No project</option>' +
             projects.map(p =>
                 `<option value="${escapeAttr(p.name)}" ${p.name === currentProject ? 'selected' : ''}>${escapeHtml(p.display_name || p.name)}</option>`
@@ -345,7 +516,8 @@ function confirmStopAndSave() {
     const tags = tagsRaw ? tagsRaw.split(",").map(t => t.trim()).filter(Boolean) : [];
     const project = document.getElementById("save-project-select").value || null;
 
-    socket.emit("stop_terminal", { project, summary, tags });
+    socket.emit("stop_terminal", { terminal_id: pendingStopTermId, project, summary, tags });
+    pendingStopTermId = null;
     closeModal("save-modal");
 
     // Clear inputs
@@ -354,31 +526,56 @@ function confirmStopAndSave() {
 }
 
 function discardTerminal() {
-    if (!isTerminalRunning) return;
+    const sess = activeSess();
+    if (!sess || !sess.running) return;
     if (!confirm("Discard this session without saving?")) return;
-    socket.emit("discard_terminal", {});
-    terminal.writeln("\r\n\x1b[90m── Session discarded ──\x1b[0m\r\n");
-    setTerminalStopped();
+    socket.emit("discard_terminal", { terminal_id: sess.id });
+    sess.term.writeln("\r\n\x1b[90m── Session discarded ──\x1b[0m\r\n");
+    setSessRunning(sess, false);
 }
 
-function setTerminalRunning() {
-    isTerminalRunning = true;
-    document.getElementById("btn-start").style.display = "none";
-    document.getElementById("btn-stop").style.display = "";
-    document.getElementById("btn-discard").style.display = "";
-    const status = document.getElementById("terminal-status");
-    status.classList.add("running");
-    status.classList.remove("stopped");
+function switchToTerminalPanel() {
+    document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+    document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
+    document.querySelector('[data-tab="terminal"]').classList.add("active");
+    document.getElementById("terminal-panel").classList.add("active");
 }
 
-function setTerminalStopped() {
-    isTerminalRunning = false;
-    document.getElementById("btn-start").style.display = "";
-    document.getElementById("btn-stop").style.display = "none";
-    document.getElementById("btn-discard").style.display = "none";
-    const status = document.getElementById("terminal-status");
-    status.classList.remove("running");
-    status.classList.add("stopped");
+// Send a prompt line to the active tab's running session, if any
+function sendPromptToActiveSession(prompt) {
+    const sess = activeSess();
+    if (sess && sess.running && socket) {
+        socket.emit("terminal_input", { terminal_id: sess.id, data: prompt });
+        sess.term.focus();
+        return true;
+    }
+    return false;
+}
+
+// Resume a saved session into the active tab if it is idle, otherwise a
+// fresh tab - a running session is never stopped to make room.
+function resumeInTab(project, claudeSessionId, workingDirectory, banner) {
+    let sess = activeSess();
+    if (!sess || sess.running) {
+        sess = newSessionTab();
+        if (!sess) return; // tab cap reached (toast already shown)
+    }
+    sess.project = project || null;
+    updateSessionTabEl(sess);
+
+    switchToTerminalPanel();
+    activateSessionTab(sess.id);
+
+    sess.term.clear();
+    sess.term.writeln(banner);
+
+    socket.emit("resume_session", {
+        terminal_id: sess.id,
+        project: project,
+        claude_session_id: claudeSessionId,
+        working_directory: workingDirectory || "",
+        permission_mode: currentPermissionMode,
+    });
 }
 
 function showConnectionStatus(state) {
@@ -470,8 +667,8 @@ function setPermissionMode(mode, opts = {}) {
 
     // The mode is applied as CLI flags when a session spawns, so a change
     // never affects the session that is already running - tell the user.
-    if (!opts.silent && isTerminalRunning) {
-        showToast(`"${info.label}" saved - it applies to the NEXT session. Press Shift+Tab inside the terminal to change the running session's mode.`, 6000);
+    if (!opts.silent && anyRunning()) {
+        showToast(`"${info.label}" saved - it applies to the NEXT session. Press Shift+Tab inside the terminal to change a running session's mode.`, 6000);
     }
 }
 
@@ -575,8 +772,9 @@ function initUI() {
             const panelId = tab.dataset.tab + "-panel";
             document.getElementById(panelId).classList.add("active");
 
-            if (tab.dataset.tab === "terminal" && fitAddon) {
-                setTimeout(() => fitAddon.fit(), 50);
+            if (tab.dataset.tab === "terminal") {
+                const sess = activeSess();
+                if (sess) setTimeout(() => { try { sess.fitAddon.fit(); } catch (err) {} }, 50);
             }
             if (tab.dataset.tab !== "viewer") {
                 document.getElementById("btn-resume").style.display = "none";
@@ -696,11 +894,13 @@ function initUI() {
         document.getElementById("new-project-workdir").dataset.manual = "true";
     });
     document.getElementById("btn-new-session").addEventListener("click", () => {
-        // Switch to terminal tab and start
-        document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
-        document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
-        document.querySelector('[data-tab="terminal"]').classList.add("active");
-        document.getElementById("terminal-panel").classList.add("active");
+        // Switch to the terminal panel and start in the active tab; if that
+        // tab already has a running session, open a fresh tab for this one.
+        switchToTerminalPanel();
+        const sess = activeSess();
+        if (sess && sess.running) {
+            if (!newSessionTab()) return; // tab cap reached
+        }
         startTerminal();
     });
     document.getElementById("btn-create-project").addEventListener("click", createProject);
@@ -751,7 +951,8 @@ function initSidebarResize() {
         const onMouseMove = (e) => {
             const newWidth = startWidth + (e.clientX - startX);
             sidebar.style.width = Math.max(180, Math.min(400, newWidth)) + "px";
-            if (fitAddon) fitAddon.fit();
+            const sess = activeSess();
+            if (sess) { try { sess.fitAddon.fit(); } catch (err) {} }
         };
 
         const onMouseUp = () => {
@@ -896,10 +1097,9 @@ async function toggleWorkRelated(project, value) {
 }
 
 async function selectProject(name) {
-    if (!suppressProjectSwitchGuard && isTerminalRunning && activeProject && name !== activeProject) {
-        alert("A terminal session is currently running.\n\nClose and save this session before opening another project.\n\nUse 'Stop & Save' or 'Discard' in the terminal toolbar.");
-        return;
-    }
+    // Multi-session tabs: switching projects is always allowed. A running
+    // tab captured its project at spawn time, and save destinations are
+    // derived from the session's working directory server-side.
     activeProject = name;
     document.getElementById("active-project-label").textContent = name;
 
@@ -1227,18 +1427,6 @@ function copySessionUuid() {
 // ─── Resume Session ─────────────────────────────────────────────────────────
 
 async function resumeSession() {
-    if (isTerminalRunning) {
-        if (!confirm("A terminal is already running. Stop it and resume this session?")) {
-            return;
-        }
-        socket.emit("stop_terminal", {
-            project: activeProject,
-            summary: "",
-            tags: [],
-        });
-        await new Promise(resolve => setTimeout(resolve, 500));
-    }
-
     const project = viewedSessionProject;
     const sessionId = activeSessionId;
     if (!project || !sessionId) return;
@@ -1257,21 +1445,12 @@ async function resumeSession() {
             return;
         }
 
-        // Switch to terminal tab
-        document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
-        document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
-        document.querySelector('[data-tab="terminal"]').classList.add("active");
-        document.getElementById("terminal-panel").classList.add("active");
-
-        terminal.clear();
-        terminal.writeln("\x1b[90m  Resuming previous session...\x1b[0m\r\n");
-
-        socket.emit("resume_session", {
-            project: project,
-            claude_session_id: session.claude_session_id,
-            working_directory: session.working_directory || "",
-            permission_mode: currentPermissionMode,
-        });
+        resumeInTab(
+            project,
+            session.claude_session_id,
+            session.working_directory || "",
+            "\x1b[90m  Resuming previous session...\x1b[0m\r\n"
+        );
     } catch (e) {
         console.error("Failed to resume session:", e);
     }
@@ -1449,8 +1628,10 @@ async function saveSettings() {
             }),
         });
         if (resp.ok) {
-            terminal.options.fontSize = fontSize;
-            if (fitAddon) fitAddon.fit();
+            for (const sess of Object.values(termSessions)) {
+                sess.term.options.fontSize = fontSize;
+                try { sess.fitAddon.fit(); } catch (err) { /* hidden tab */ }
+            }
             closeModal("settings-modal");
         }
     } catch (e) {
@@ -1464,8 +1645,8 @@ async function restartServer() {
     try {
         await fetch("/api/restart", { method: "POST" });
     } catch (e) { /* expected — server is shutting down */ }
-    if (terminal) {
-        terminal.writeln("\r\n\x1b[31m  Server killed. Restart manually to continue.\x1b[0m\r\n");
+    for (const sess of Object.values(termSessions)) {
+        sess.term.writeln("\r\n\x1b[31m  Server killed. Restart manually to continue.\x1b[0m\r\n");
     }
 }
 
@@ -1475,8 +1656,10 @@ async function applyStartupSettings() {
         const settings = await resp.json();
 
         if (settings.font_size && settings.font_size !== 14) {
-            terminal.options.fontSize = settings.font_size;
-            if (fitAddon) fitAddon.fit();
+            for (const sess of Object.values(termSessions)) {
+                sess.term.options.fontSize = settings.font_size;
+                try { sess.fitAddon.fit(); } catch (err) { /* hidden tab */ }
+            }
         }
 
         if (settings.default_project) {
@@ -1518,12 +1701,8 @@ async function uploadFile() {
             return;
         }
 
-        // If terminal is running, tell Claude to read the file
-        if (isTerminalRunning && socket) {
-            const prompt = `Read and analyze this file in the current working directory: ${data.filename}\n`;
-            socket.emit("terminal_input", { data: prompt });
-            terminal.focus();
-        } else {
+        // If the active tab has a running session, tell Claude to read the file
+        if (!sendPromptToActiveSession(`Read and analyze this file in the current working directory: ${data.filename}\n`)) {
             alert(`File uploaded to:\n${data.path}\n\nStart a Claude Code session to have it read the file.`);
         }
     } catch (e) {
@@ -1558,12 +1737,8 @@ async function takeScreenshot() {
             return;
         }
 
-        // If terminal is running, tell Claude to look at the screenshot
-        if (isTerminalRunning && socket) {
-            const prompt = `Read and analyze this screenshot image in the current working directory: ${data.filename}\n`;
-            socket.emit("terminal_input", { data: prompt });
-            terminal.focus();
-        } else {
+        // If the active tab has a running session, tell Claude to look at the screenshot
+        if (!sendPromptToActiveSession(`Read and analyze this screenshot image in the current working directory: ${data.filename}\n`)) {
             alert(`Screenshot saved to:\n${data.path}\n\nStart a Claude Code session to have Claude analyze it.`);
         }
     } catch (e) {
@@ -1701,7 +1876,10 @@ function toggleFileTree() {
         loadFileTree();
     }
     // Refit terminal after layout change
-    setTimeout(() => { if (fitAddon) fitAddon.fit(); }, 50);
+    setTimeout(() => {
+        const sess = activeSess();
+        if (sess) { try { sess.fitAddon.fit(); } catch (err) {} }
+    }, 50);
 }
 
 async function loadFileTree() {
@@ -1745,11 +1923,7 @@ async function loadFileTree() {
         document.getElementById("filetree-content").querySelectorAll(".ft-item[data-filepath]").forEach(item => {
             item.addEventListener("click", () => {
                 const filepath = item.dataset.filepath.replaceAll("\\", "/");
-                if (isTerminalRunning && socket) {
-                    const prompt = `Read the file: ${filepath}\n`;
-                    socket.emit("terminal_input", { data: prompt });
-                    terminal.focus();
-                }
+                sendPromptToActiveSession(`Read the file: ${filepath}\n`);
             });
         });
     } catch (e) {
@@ -1834,12 +2008,8 @@ async function importConversation() {
 
         closeModal("import-modal");
 
-        // If terminal is running, tell Claude to read the imported conversation
-        if (isTerminalRunning && socket) {
-            const prompt = `I've imported a previous conversation for context. Read this file in the current working directory and continue from where it left off: ${data.filename}\n`;
-            socket.emit("terminal_input", { data: prompt });
-            terminal.focus();
-        } else {
+        // If the active tab has a running session, tell Claude to read the imported conversation
+        if (!sendPromptToActiveSession(`I've imported a previous conversation for context. Read this file in the current working directory and continue from where it left off: ${data.filename}\n`)) {
             alert(`Conversation saved to:\n${data.path}\n\nStart a Claude Code session to have Claude pick up from it.`);
         }
     } catch (e) {
@@ -2069,35 +2239,14 @@ async function quickResume(projectName) {
             return;
         }
 
-        if (isTerminalRunning) {
-            if (!confirm("A terminal is already running. Stop it and resume the last session?")) return;
-            socket.emit("stop_terminal", { project: activeProject, summary: "", tags: [] });
-            await new Promise(resolve => setTimeout(resolve, 500));
-        }
+        await selectProject(projectName);
 
-        // Select the project (bypass the running-terminal guard since the user already confirmed)
-        suppressProjectSwitchGuard = true;
-        try {
-            await selectProject(projectName);
-        } finally {
-            suppressProjectSwitchGuard = false;
-        }
-
-        // Switch to terminal tab
-        document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
-        document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
-        document.querySelector('[data-tab="terminal"]').classList.add("active");
-        document.getElementById("terminal-panel").classList.add("active");
-
-        terminal.clear();
-        terminal.writeln(`\x1b[90m  Quick-resuming last session: ${latest.summary || latest.id}...\x1b[0m\r\n`);
-
-        socket.emit("resume_session", {
-            project: projectName,
-            claude_session_id: latest.claude_session_id,
-            working_directory: latest.working_directory || "",
-            permission_mode: currentPermissionMode,
-        });
+        resumeInTab(
+            projectName,
+            latest.claude_session_id,
+            latest.working_directory || "",
+            `\x1b[90m  Quick-resuming last session: ${latest.summary || latest.id}...\x1b[0m\r\n`
+        );
     } catch (e) {
         console.error("Quick resume failed:", e);
     }
@@ -2173,8 +2322,8 @@ async function renameProject(name) {
 }
 
 async function archiveProject(name) {
-    if (isTerminalRunning && activeProject === name) {
-        alert("Stop the running terminal session before archiving this project.");
+    if (Object.values(termSessions).some(s => s.running && s.project === name)) {
+        alert("Stop the running terminal session(s) using this project before archiving it.");
         return;
     }
     if (!confirm(`Archive project "${name}"?\n\nIt will be hidden from the projects list. You can restore it anytime from the Archived Projects view (🗃️).`)) return;
