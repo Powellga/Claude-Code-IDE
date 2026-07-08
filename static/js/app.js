@@ -396,15 +396,11 @@ function buildTerminalInstance(sess) {
             return true;
         }
 
-        // Ctrl+V: read clipboard and send directly
+        // Ctrl+V: image on the clipboard uploads for Claude; text pastes
         if (e.key === "v" || e.key === "V") {
             ctrlVJustFired = true;
             setTimeout(() => { ctrlVJustFired = false; }, 200);
-            navigator.clipboard.readText().then(text => {
-                if (text && sess.running && socket) {
-                    socket.emit("terminal_input", { terminal_id: sess.id, data: text });
-                }
-            }).catch(() => {});
+            pasteClipboardIntoSession(sess);
             return false;
         }
 
@@ -947,6 +943,64 @@ function switchToTerminalPanel() {
     document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
     document.querySelector('[data-tab="terminal"]').classList.add("active");
     document.getElementById("terminal-panel").classList.add("active");
+}
+
+// Ctrl+V handler: if the clipboard holds an image (e.g. a screenshot),
+// upload it to the tab's project directory and prompt Claude to analyze
+// it; otherwise paste clipboard text into the terminal as before.
+async function pasteClipboardIntoSession(sess) {
+    try {
+        if (navigator.clipboard.read) {
+            const items = await navigator.clipboard.read();
+            for (const item of items) {
+                const imgType = item.types.find(t => t.startsWith("image/"));
+                if (imgType) {
+                    const blob = await item.getType(imgType);
+                    await uploadPastedImage(sess, blob, imgType);
+                    return;
+                }
+            }
+        }
+    } catch (err) { /* rich clipboard unavailable - fall through to text */ }
+
+    try {
+        const text = await navigator.clipboard.readText();
+        if (text && sess.running && socket) {
+            socket.emit("terminal_input", { terminal_id: sess.id, data: text });
+        }
+    } catch (err) { /* nothing usable on the clipboard */ }
+}
+
+async function uploadPastedImage(sess, blob, mimeType) {
+    const project = sess.project || activeProject;
+    if (!project) {
+        showToast("Select a project first so the pasted image has a destination directory.", 4000);
+        return;
+    }
+    const d = new Date();
+    const pad = n => String(n).padStart(2, "0");
+    const ts = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+    const ext = (mimeType.split("/")[1] || "png").replace("jpeg", "jpg");
+    const filename = `pasted_image_${ts}.${ext}`;
+
+    const formData = new FormData();
+    formData.append("file", new File([blob], filename, { type: mimeType }));
+    formData.append("project", project);
+    try {
+        const resp = await fetch("/api/upload", { method: "POST", body: formData });
+        const data = await resp.json();
+        if (data.error) {
+            showToast("Image paste failed: " + data.error, 4000);
+            return;
+        }
+        if (!sendPromptToActiveSession(`Read and analyze this pasted image in the current working directory: ${data.filename}\n`)) {
+            showToast(`Image saved as ${data.filename} - start a session to have Claude analyze it.`, 4000);
+        } else {
+            showToast("Pasted image sent to Claude: " + data.filename, 2500);
+        }
+    } catch (err) {
+        showToast("Image paste failed: " + err, 4000);
+    }
 }
 
 // Send a prompt line to the active tab's running session, if any
