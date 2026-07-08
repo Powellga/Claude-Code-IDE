@@ -79,20 +79,28 @@ function initSocket() {
             return;
         }
 
-        // Reconnect (e.g. server restart): auto-resume tabs that were running
+        // Reconnect: the server may still be running (transient network blip)
+        // with our sessions alive but orphaned - REATTACH keeps them exactly
+        // as they were. Resuming here instead would be refused ("already open
+        // in another tab") and the live session would die when the orphan
+        // grace expired. Only when reattach reports the terminal is gone
+        // (real server restart) does the terminal_error handler fall back to
+        // claude --resume via sess.resumeFallback.
         for (const sess of Object.values(termSessions)) {
-            if (sess.wasRunningBeforeDisconnect && sess.claudeSessionId) {
-                sess.wasRunningBeforeDisconnect = false;
-                sess.term.writeln("\r\n\x1b[33m  ⚡ Server restarted — auto-resuming session...\x1b[0m\r\n");
-                socket.emit("resume_session", {
+            if (!sess.wasRunningBeforeDisconnect) continue;
+            sess.wasRunningBeforeDisconnect = false;
+            if (sess.claudeSessionId) {
+                sess.resumeFallback = {
                     terminal_id: sess.id,
                     project: sess.project,
                     claude_session_id: sess.claudeSessionId,
                     working_directory: sess.workingDirectory || "",
                     permission_mode: currentPermissionMode,
                     account: sess.account || "Default",
-                });
+                };
             }
+            sess.term.writeln("\r\n\x1b[33m  ⚡ Reconnected - reattaching to session...\x1b[0m\r\n");
+            socket.emit("reattach_terminal", { terminal_id: sess.id });
         }
     });
 
@@ -112,6 +120,7 @@ function initSocket() {
     socket.on("terminal_ready", (msg) => {
         const sess = routeSess(msg);
         if (!sess) return;
+        sess.resumeFallback = null; // reattach/resume succeeded
         if (msg && !msg.terminal_id && !legacySingleSession) {
             legacySingleSession = true;
             showToast("Server is running the pre-multi-tab backend. Restart the server to enable multiple session tabs.", 6000);
@@ -159,12 +168,29 @@ function initSocket() {
     socket.on("terminal_error", (msg) => {
         const sess = routeSess(msg);
         if (!sess) return;
+        // Reattach failed because the terminal is gone (server restarted or
+        // the orphan grace expired) - fall back to a native claude --resume.
+        if (sess.resumeFallback && msg.code === "not_running") {
+            const payload = sess.resumeFallback;
+            sess.resumeFallback = null;
+            sess.term.writeln("\r\n\x1b[33m  ⚡ Session no longer live on the server - resuming...\x1b[0m\r\n");
+            socket.emit("resume_session", payload);
+            return;
+        }
+        sess.resumeFallback = null;
         sess.term.writeln(`\r\n\x1b[31mError: ${msg.message}\x1b[0m\r\n`);
         setSessRunning(sess, false);
     });
 
     socket.on("session_saved", (msg) => {
         console.log("[IDE] Session saved:", msg.id);
+        // Mark the owning tab idle - the server killed the process as part of
+        // the save, but terminal_exit cannot fire after the entry is removed.
+        const sess = msg && msg.terminal_id ? termSessions[msg.terminal_id] : null;
+        if (sess) {
+            sess.term.writeln("\r\n\x1b[90m── Session saved ──\x1b[0m\r\n");
+            if (sess.running) setSessRunning(sess, false);
+        }
         loadProjects();
         if (activeProject) {
             loadSessions(activeProject);
@@ -491,9 +517,15 @@ function buildTerminalInstance(sess) {
         socket.emit("terminal_input", { terminal_id: sess.id, data });
     });
 
-    // Refit when the container resizes (only meaningful while visible)
+    // Refit when the container resizes (only meaningful while visible).
+    // The zero-size check matters: switching MAIN tabs (e.g. to the Session
+    // Viewer) hides the whole terminal panel, collapsing this container to
+    // 0x0 without touching its inline display. Fitting/resizing against a
+    // hidden container can clear xterm's renderer and desync the viewport,
+    // which showed up as "all the text disappears" after switching back.
     const resizeObserver = new ResizeObserver(() => {
         if (!sess.fitAddon || sess.containerEl.style.display === "none") return;
+        if (!sess.containerEl.offsetWidth || !sess.containerEl.offsetHeight) return;
         try { sess.fitAddon.fit(); } catch (e) { return; }
         if (sess.running && socket) {
             socket.emit("resize_terminal", {
@@ -1554,7 +1586,17 @@ function initUI() {
 
             if (tab.dataset.tab === "terminal") {
                 const sess = activeSess();
-                if (sess) setTimeout(() => { try { sess.fitAddon.fit(); } catch (err) {} }, 50);
+                // The panel was display:none while other tabs were active -
+                // refit, force a full repaint from the buffer, and resync the
+                // viewport scroll position (it desyncs while collapsed).
+                if (sess) setTimeout(() => {
+                    try { sess.fitAddon.fit(); } catch (err) {}
+                    try {
+                        sess.term.refresh(0, sess.term.rows - 1);
+                        sess.term.scrollToBottom();
+                    } catch (err) {}
+                    sess.term.focus();
+                }, 50);
             }
             if (tab.dataset.tab !== "viewer") {
                 document.getElementById("btn-resume").style.display = "none";

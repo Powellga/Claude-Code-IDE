@@ -133,6 +133,18 @@ def _spawn_terminal(sid, project_path=None, cmd=None, claude_session_id=None, te
     import threading
 
     term_id = term_id or uuid.uuid4().hex
+
+    # A tab id being reused while its previous terminal entry still exists
+    # (e.g. the old process was orphaned by a reconnect, or exited without
+    # cleanup) must not overwrite that entry - the old PTY would keep
+    # emitting output under this id (two sessions interleaved in one tab)
+    # and its session record would be lost. Kill and save the old one first.
+    if term_id in active_terminals:
+        old = _kill_terminal(term_id)
+        if old:
+            save_session(old, old.get("project"))
+            print(f"[IDE] Terminal id {term_id} reused - previous session saved before respawn")
+
     cwd = project_path or str(Path.home())
     cmd = cmd or CLAUDE_CMD
 
@@ -179,10 +191,9 @@ def _spawn_terminal(sid, project_path=None, cmd=None, claude_session_id=None, te
                     dest = _current_sid(term_id)
                     if dest:
                         socketio.emit("terminal_exit", {"terminal_id": term_id, "code": 0}, to=dest)
+                    _finalize_exited_terminal(term_id, session_record)
 
             thread = threading.Thread(target=read_output, daemon=True)
-            thread.start()
-
             active_terminals[term_id] = {
                 "proc": proc,
                 "thread": thread,
@@ -190,6 +201,7 @@ def _spawn_terminal(sid, project_path=None, cmd=None, claude_session_id=None, te
                 "type": "winpty",
                 "sid": sid,
             }
+            thread.start()
             return term_id
 
         except ImportError:
@@ -231,10 +243,9 @@ def _spawn_terminal(sid, project_path=None, cmd=None, claude_session_id=None, te
                 dest = _current_sid(term_id)
                 if dest:
                     socketio.emit("terminal_exit", {"terminal_id": term_id, "code": proc.returncode or 0}, to=dest)
+                _finalize_exited_terminal(term_id, session_record)
 
         thread = threading.Thread(target=read_output, daemon=True)
-        thread.start()
-
         active_terminals[term_id] = {
             "proc": proc,
             "master_fd": master_fd,
@@ -243,6 +254,7 @@ def _spawn_terminal(sid, project_path=None, cmd=None, claude_session_id=None, te
             "type": "pty",
             "sid": sid,
         }
+        thread.start()
         return term_id
 
     except (ImportError, OSError):
@@ -272,10 +284,9 @@ def _spawn_terminal(sid, project_path=None, cmd=None, claude_session_id=None, te
                 dest = _current_sid(term_id)
                 if dest:
                     socketio.emit("terminal_exit", {"terminal_id": term_id, "code": proc.returncode or 0}, to=dest)
+                _finalize_exited_terminal(term_id, session_record)
 
         thread = threading.Thread(target=read_output, daemon=True)
-        thread.start()
-
         active_terminals[term_id] = {
             "proc": proc,
             "thread": thread,
@@ -283,6 +294,7 @@ def _spawn_terminal(sid, project_path=None, cmd=None, claude_session_id=None, te
             "type": "subprocess",
             "sid": sid,
         }
+        thread.start()
         return term_id
 
 
@@ -297,17 +309,26 @@ def _terminal_ids_for_sid(sid):
     return [tid for tid, info in list(active_terminals.items()) if info.get("sid") == sid]
 
 
-def _resolve_terminal_id(sid, data):
+def _resolve_terminal_id(sid, data, allow_orphaned=False):
     """Find the terminal a client event refers to.
 
     Prefers an explicit terminal_id (validated against ownership); falls back
     to the connection's only terminal so an older cached frontend that sends
     no id keeps working in single-session mode.
+
+    allow_orphaned lets stop/discard target a terminal whose sid is None
+    (orphaned by a reconnect the client has not reattached yet) - otherwise
+    a Stop & Save right after a network blip would silently do nothing.
     """
     tid = (data or {}).get("terminal_id")
     if tid:
         info = active_terminals.get(tid)
-        return tid if info and info.get("sid") == sid else None
+        if not info:
+            return None
+        owner = info.get("sid")
+        if owner == sid or (allow_orphaned and owner is None):
+            return tid
+        return None
     owned = _terminal_ids_for_sid(sid)
     return owned[0] if len(owned) == 1 else None
 
@@ -355,6 +376,39 @@ def _kill_terminal(term_id):
         pass
 
     return record
+
+
+def _finalize_exited_terminal(term_id, session_record):
+    """The terminal process ended on its own - save the session and clean up.
+
+    Called from the PTY reader thread's finally block. Stop/discard/reap all
+    pop the entry via _kill_terminal BEFORE the process dies, so the identity
+    check makes this a no-op for those paths. It only fires for a natural
+    exit (user typed /exit, Claude crashed). Without it the entry stayed in
+    active_terminals forever: the session was never saved, resuming it was
+    refused as "already open", and starting a new session in the same tab
+    overwrote (lost) the record.
+    """
+    info = active_terminals.get(term_id)
+    if not info or info.get("record") is not session_record:
+        return
+    active_terminals.pop(term_id, None)
+    timer = info.pop("orphan_timer", None)
+    if timer:
+        timer.cancel()
+    record = info["record"]
+    record["ended"] = datetime.now().isoformat()
+    try:
+        filepath = save_session(record, record.get("project"))
+        print(f"[IDE] Terminal {term_id} exited on its own - session saved to {filepath}")
+    except Exception as e:
+        print(f"[IDE] Terminal {term_id} exited but saving failed: {e}")
+        return
+    dest = info.get("sid")
+    if dest:
+        socketio.emit("session_saved",
+                      {"terminal_id": term_id, "filepath": filepath, "id": record["id"]},
+                      to=dest)
 
 
 # ─── Session Persistence ───────────────────────────────────────────────────
@@ -2186,10 +2240,12 @@ def on_reattach_terminal(data):
     tid = (data or {}).get("terminal_id")
     info = active_terminals.get(tid)
     if not info:
-        emit("terminal_error", {"terminal_id": tid, "message": "Session is no longer running"})
+        emit("terminal_error", {"terminal_id": tid, "code": "not_running",
+                                "message": "Session is no longer running"})
         return
     if info.get("sid"):
-        emit("terminal_error", {"terminal_id": tid, "message": "Session is attached to another window"})
+        emit("terminal_error", {"terminal_id": tid, "code": "attached_elsewhere",
+                                "message": "Session is attached to another window"})
         return
 
     timer = info.pop("orphan_timer", None)
@@ -2295,6 +2351,7 @@ def on_resume_session(data):
         if other["record"].get("claude_session_id") == claude_session_id:
             emit("terminal_error", {
                 "terminal_id": term_id,
+                "code": "already_open",
                 "message": "This session is already open in another tab",
             })
             return
@@ -2366,20 +2423,29 @@ def on_stop_terminal(data):
     """Stop a terminal and save its session."""
     sid = request.sid
     project = data.get("project")
-    tid = _resolve_terminal_id(sid, data)
+    tid = _resolve_terminal_id(sid, data, allow_orphaned=True)
     record = _kill_terminal(tid) if tid else None
     if record:
         record["summary"] = data.get("summary", "")
         record["tags"] = data.get("tags", [])
         filepath = save_session(record, project)
         emit("session_saved", {"terminal_id": tid, "filepath": filepath, "id": record["id"]})
+    else:
+        # Never fail silently - the user just clicked Stop & Save and needs
+        # to know nothing was there to save (e.g. the process already exited
+        # and was auto-saved by _finalize_exited_terminal).
+        emit("terminal_error", {
+            "terminal_id": (data or {}).get("terminal_id"),
+            "code": "not_running",
+            "message": "Session already ended - nothing left to save",
+        })
 
 
 @socketio.on("discard_terminal")
 def on_discard_terminal(data):
     """Stop a terminal without saving."""
     sid = request.sid
-    tid = _resolve_terminal_id(sid, data)
+    tid = _resolve_terminal_id(sid, data, allow_orphaned=True)
     if tid:
         _kill_terminal(tid)  # Kill process, discard the record
         print(f"[IDE] Session discarded by user: {sid} terminal {tid}")
