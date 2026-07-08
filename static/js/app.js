@@ -325,18 +325,29 @@ function closeSessionTab(id) {
 }
 
 function updateSessionTabEl(sess) {
-    let name = "new tab";
-    if (sess.project) {
+    // Tab label = the session UUID (short form) - unique per session, so
+    // several tabs on the same project are distinguishable. Project name,
+    // full UUID, and account live in the hover tooltip.
+    const projName = (() => {
+        if (!sess.project) return "no project";
         const p = cachedProjects.find(x => x.name === sess.project);
-        name = (p && (p.display_name || p.name)) || sess.project;
-    } else if (sess.running || sess.claudeSessionId) {
-        name = "no project";
+        return (p && (p.display_name || p.name)) || sess.project;
+    })();
+
+    let name;
+    if (sess.claudeSessionId) {
+        name = sess.claudeSessionId.slice(0, 8);
+    } else {
+        name = "new tab";
     }
     if (sess.account && sess.account !== "Default") {
         name += ` 👤${sess.account}`;
     }
     sess.tabEl.querySelector(".session-tab-label").textContent = name;
-    sess.tabEl.title = name + (sess.running ? " (running)" : "") +
+    sess.tabEl.title =
+        (sess.claudeSessionId ? `${sess.claudeSessionId}\n` : "") +
+        projName +
+        (sess.running ? " (running)" : "") +
         (sess.account && sess.account !== "Default" ? ` - account: ${sess.account}` : "");
     sess.tabEl.querySelector(".session-tab-dot").className =
         "session-tab-dot " + (sess.needsAttention ? "attention" : sess.running ? "running" : "idle");
@@ -1033,13 +1044,25 @@ function sendPromptToActiveSession(prompt) {
 // resumes under the ACCOUNT that created it (its transcript lives in that
 // account's config dir), not the current selector.
 function resumeInTab(project, claudeSessionId, workingDirectory, banner, account) {
-    let sess = activeSess();
+    // Already open? Never run the same Claude session in two tabs (two
+    // processes writing one transcript) - jump to the existing tab instead.
+    const existing = Object.values(termSessions).find(s => s.claudeSessionId === claudeSessionId);
+    if (existing && existing.running) {
+        switchToTerminalPanel();
+        activateSessionTab(existing.id);
+        showToast("This session is already open in another tab - switched to it.", 4000);
+        return;
+    }
+
+    let sess = existing; // an idle tab that held this session gets reused
+    if (!sess) sess = activeSess();
     if (!sess || sess.running) {
         sess = newSessionTab();
         if (!sess) return; // tab cap reached (toast already shown)
     }
     sess.project = project || null;
     sess.account = account || "Default";
+    sess.claudeSessionId = claudeSessionId; // label the tab with it immediately
     updateSessionTabEl(sess);
 
     switchToTerminalPanel();

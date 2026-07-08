@@ -67,7 +67,7 @@ Flask/SocketIO Server (app.py)
 | `static/css/style.css` | ~778 | Dark theme using CSS custom properties |
 | `conpty_process.py` | ~430 | EXPERIMENTAL, not imported by app.py. Direct Windows ConPTY API via ctypes, kept as a fallback if pywinpty ever breaks admin inheritance. Has a known blocking-read issue (see its docstring) that must be fixed before wiring it in |
 | `backup.py` | ~231 | Local zip snapshots + git push to a separate backup repo |
-| `start-ide.bat` | Launcher | Checks admin, activates venv, runs backup, opens browser, starts server |
+| `start-ide.bat` | Launcher | Checks admin, activates venv, runs backup, starts server (deliberately does NOT auto-open a browser - stacked-up IDE pages each auto-resume sessions on server restart, which is how duplicate sessions happened) |
 
 ## Backend Structure (app.py)
 

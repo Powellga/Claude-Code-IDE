@@ -2282,8 +2282,18 @@ def on_resume_session(data):
         claude_session_id = claude_session_id.split()[-1]
 
     if not claude_session_id:
-        emit("terminal_error", {"message": "No Claude session ID found for this session"})
+        emit("terminal_error", {"terminal_id": term_id, "message": "No Claude session ID found for this session"})
         return
+
+    # Refuse to open the same Claude session twice - two processes would be
+    # writing the same conversation transcript.
+    for other in active_terminals.values():
+        if other["record"].get("claude_session_id") == claude_session_id:
+            emit("terminal_error", {
+                "terminal_id": term_id,
+                "message": "This session is already open in another tab",
+            })
+            return
 
     # Prefer the session's original working directory (where Claude stored the
     # conversation), then fall back to the project's configured directory.

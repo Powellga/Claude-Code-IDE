@@ -17,5 +17,5 @@ echo Running backup...
 python backup.py
 echo.
 
-start "" http://localhost:5050
+echo Open http://localhost:5050 in your browser
 python app.py
