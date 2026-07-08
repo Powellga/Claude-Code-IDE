@@ -7,6 +7,9 @@ This is not a thin wrapper or a chat UI that calls an API. It manages real PTY p
 ## What It Does
 
 - **Interactive Terminal** — Runs Claude Code in a real terminal (xterm.js) inside your browser
+- **Multi-Session Tabs** — Run up to 8 concurrent Claude Code sessions in a tab strip, each with its own PTY process, project binding, and status dot; switch, stop, save, or discard them independently
+- **Needs-Input Notifications** — When Claude is waiting on you in a session you aren't watching, the tab gets an orange pulsing dot, the page title and favicon get a badge, and an OS toast plus a subtle chime fire (all configurable); powered by Claude Code's native Notification hook with a one-click installer
+- **Editor Pane** — A deliberately unobtrusive Monaco editor slides in from a slim `<` handle on the terminal's right edge: compact file tree, open-file tabs with dirty indicators, Ctrl+S save, changed-on-disk conflict guard, capped at half the window, remembered per session tab
 - **Session Recording** — Every conversation is automatically captured and cleaned via virtual terminal rendering (pyte)
 - **Session Resume** — Resume any saved session using Claude Code's native `--resume` flag
 - **Project Organization** — Group related sessions into named projects with custom working directories
@@ -36,13 +39,33 @@ This is not a thin wrapper or a chat UI that calls an API. It manages real PTY p
 - **Auto-Generated CLAUDE.md** — New projects get a minimal CLAUDE.md with project name, description, and working directory (IDE-level instructions live in the global `~/.claude/CLAUDE.md`)
 - **Permission Mode** — Status bar dropdown below the terminal with five modes: Default (uses the `defaultMode` from your own Claude Code settings.json), Ask Permissions, Auto Accept Edits, Plan Mode, and Bypass Permissions. The selection is remembered across page reloads and applies to the next session you start or resume - changing it while a session is running shows a reminder toast (use Shift+Tab inside the terminal to switch a live session). Note that Auto Accept Edits only auto-approves file edits; other actions like shell commands still prompt, which is Claude Code's own behavior for that mode
 - **Open in Explorer** — Click the folder icon in the file tree header to open the project's working directory in your system file manager
-- **Clipboard Support** — Ctrl+C copies selected terminal text; Ctrl+V pastes without double-paste issues
+- **Clipboard Support** — Terminal copy that actually works: drag over text in a running Claude session and it lands in the real Windows clipboard (OSC 52 bridge), drag-select auto-copies outside the TUI, Ctrl+C copies selections, Ctrl+V pastes without double-paste issues, and every copy shows a confirming toast
 - **Kill Server** — Stop the IDE server from within the Settings modal when you need to restart
 - **Automatic Backups** — On every startup, zips project data locally (keeps 10 snapshots) and pushes to a private GitHub repo for off-site recovery
 - **Non-Blocking Git** — Git operations run in a thread pool with hard timeouts so the server never locks up
 - **Smart Defaults** — New projects auto-fill a dedicated working directory (`~/Claude-Code-IDE-Workspaces/<project-name>`)
 - **Tooltips** — Hover hints on every interactive element
 - **Dark Theme** — VS Code-inspired dark UI
+
+## What's New: Phases 20-23
+
+The last four development phases turned the IDE from a single-session recorder into a parallel workbench. In order:
+
+### Phase 20 — Terminal copy that finally works (OSC 52 clipboard bridge)
+
+Copying text out of a running Claude Code session in the browser was silently broken, and the root cause was subtle: Claude Code's TUI enables any-motion mouse tracking, so drag-selections never reach xterm.js at all — the TUI draws its **own** highlight and "copies" by emitting an **OSC 52** escape sequence (`ESC ]52;c;<base64>`). Real terminals like Windows Terminal translate that into a system clipboard write; xterm.js ignores it, so Claude reported "copied N chars to clipboard" while the Windows clipboard stayed empty. The IDE now registers an OSC 52 handler that decodes the payload and writes the real clipboard — dragging over text in a session just works, with a confirming toast. Outside the TUI (welcome screen, plain shell) drag-select auto-copies, with the selection captured at event time because mouse-motion reports clear xterm selections within milliseconds. Copy failures surface as visible toasts instead of silence. The same phase hardened permission modes: a missing `permission_mode` field now falls back to sending no CLI flags, so your own `settings.json` `defaultMode` always wins.
+
+### Phase 21 — Multi-session tabs
+
+One page, many Claude Code sessions. The server keys terminals by `terminal_id` instead of socket connection, every WebSocket event carries the id, and disconnects kill and auto-save all terminals a page owned. The frontend replaces its single-terminal globals with a session map: a tab strip above the terminal hosts up to 8 concurrent sessions, each with its own xterm instance, green/gray running dot, and project label. A tab captures its project from the sidebar **at spawn time**, so you can browse other projects freely while sessions run — the old "stop your session before switching projects" guard is gone (session saves were already routed by working directory, not sidebar state). Resume and Quick-Resume open in a new tab instead of offering to kill the running one, and starting two sessions in the same working directory warns about file-conflict risk.
+
+### Phase 22 — Needs-input notifications
+
+Parallel sessions need a way to say "I'm waiting on you." Claude Code's native **Notification hook** fires exactly when a session needs attention (permission request, question, idle prompt); the IDE offers a one-click install that adds the hook to `~/.claude/settings.json` (with a backup, refusing to touch an unparsable file). The hook pipes its event JSON to `POST /api/notify`, which matches the session id to the owning tab and pushes it over Socket.IO. Delivery: orange pulsing dot on the session tab, a "(n)" page-title counter, a badged favicon — and when you aren't watching that session, an OS toast (click it to jump to the tab) plus a subtle two-note WebAudio chime. Attention clears the moment you focus the tab or type into the session. An idle-stream heuristic (sustained output, then silence) gives a dot-only fallback for sessions without the hook. Live testing surfaced two classic pitfalls, both fixed: the silent heuristic could pre-empt the hook's audible alert (alerts now escalate), and Chrome's autoplay policy silently suspends an AudioContext created while the window is unfocused (the audio engine now unlocks on the first user gesture, and Save Settings plays the chime as an audible check).
+
+### Phase 23 — The unobtrusive editor pane
+
+Not a headline editor — a quick-edit surface that stays out of the way. A slim `<` handle on the terminal's right edge slides in a **Monaco** pane (lazy-loaded from CDN on first open, one shared instance); `>` tucks it away. Each session tab remembers its own pane state — open/closed, open files, active file — and the pane is drag-resizable up to a hard cap of 50% of the window. Inside: a compact toggleable file tree, open-file tabs with dirty dots, Ctrl+S save, VS Code dark theme. Because Claude edits the same files you do, saves carry the file's load-time mtime and a mismatch returns 409: you choose overwrite or reload, never a silent clobber. The backing endpoints (`GET`/`PUT /api/projects/<name>/file`) are traversal-guarded to the project working directory, detect binary files, and cap at 2 MB.
 
 ## How It Works Under the Hood
 
@@ -156,10 +179,10 @@ Browser (localhost:5050)
     |
 Flask Server (Python)
     |
-    +---> PTY Process (pywinpty / pty)
-    |         |
+    +---> PTY Processes (pywinpty / pty) — one per session tab, up to 8,
+    |         |                            keyed by terminal_id
     |         v
-    |     Claude Code CLI
+    |     Claude Code CLI  --Notification hook--> POST /api/notify
     |         |
     |         v  MCP Protocol (stdio)
     |         |
@@ -246,7 +269,7 @@ The IDE drives Claude Code, which connects to **MCP servers** for browser automa
 | `Ctrl+C` | Copy selection if one exists, otherwise sent to the terminal (SIGINT) |
 | `Ctrl+V` | Paste clipboard into the terminal |
 | `Ctrl+Shift+F` | Open search |
-| `Ctrl+S` | Save CLAUDE.md (when editor tab is active) |
+| `Ctrl+S` | Save CLAUDE.md (when that tab is active) or the active file in the editor pane (when Monaco is focused) |
 | `Escape` | Close modals |
 | Right-click | Context menu on projects (rename, archive, delete, pin, set working directory, live URLs) and sessions (rename, move, copy UUID, delete) |
 
