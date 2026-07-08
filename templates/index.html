@@ -160,6 +160,14 @@
                 <div id="terminal-statusbar">
                     <div class="statusbar-left"></div>
                     <div class="statusbar-right">
+                        <div id="account-wrapper" style="position:relative;">
+                            <button id="btn-account" class="statusbar-btn" title="Anthropic account for the NEXT session you start (each session tab keeps the account it started with)">
+                                <span>👤</span>
+                                <span id="account-label">Default</span>
+                                <span class="dropdown-chevron">&#9662;</span>
+                            </button>
+                            <div id="account-menu" style="display:none;"></div>
+                        </div>
                         <div id="permission-mode-wrapper">
                             <button id="btn-permission-mode" class="statusbar-btn" title="Change permission mode for Claude Code sessions (applies to the next session you start or resume)">
                                 <span id="permission-mode-icon">&#9670;</span>
@@ -279,10 +287,17 @@
                         <div class="usage-section-title">OUTPUT TOKENS - LAST 30 DAYS</div>
                         <div id="usage-chart"></div>
                     </div>
-                    <div class="usage-section-title">BY PROJECT</div>
-                    <table id="usage-table">
+                    <div class="usage-section-title">BY ACCOUNT</div>
+                    <table id="usage-accounts-table" class="usage-data-table">
                         <thead>
-                            <tr><th>Project</th><th>Sessions</th><th>Turns</th><th>Input</th><th>Output</th><th>Cache read</th><th>Last used</th></tr>
+                            <tr><th>Account</th><th>Sessions</th><th>Turns</th><th>Input</th><th>Output</th><th>Cache read</th><th>Est. cost</th><th>Last used</th></tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                    <div class="usage-section-title">BY PROJECT</div>
+                    <table id="usage-table" class="usage-data-table">
+                        <thead>
+                            <tr><th>Project</th><th>Sessions</th><th>Turns</th><th>Input</th><th>Output</th><th>Cache read</th><th>Est. cost</th><th>Last used</th></tr>
                         </thead>
                         <tbody></tbody>
                     </table>
@@ -365,6 +380,15 @@
                 <label class="settings-check" title="Short chime alongside the desktop notification">
                     <input type="checkbox" id="settings-notification-sound" checked> Notification sound
                 </label>
+                <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border);">
+                    <div style="display:flex;align-items:center;">
+                        <label style="margin:0;">Anthropic Accounts</label>
+                        <span style="flex:1"></span>
+                        <button id="btn-add-account" class="toolbar-btn" title="Add another Claude Code account (each gets its own config directory)">+ Add</button>
+                    </div>
+                    <div style="font-size:11px;color:var(--text-muted);margin:4px 0 6px;">Each account uses its own config directory (CLAUDE_CONFIG_DIR). Select it in the terminal status bar, start a session, and run /login once to authenticate. API key is optional (for key-based accounts).</div>
+                    <div id="settings-accounts"></div>
+                </div>
                 <button id="btn-save-settings" class="toolbar-btn primary" style="margin-top:12px;width:100%;" title="Save settings to server">Save Settings</button>
                 <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border);">
                     <button id="btn-restart-server" class="toolbar-btn danger" style="width:100%;" title="Kill the IDE server process">Kill Server</button>
@@ -451,6 +475,6 @@
     <div id="context-menu" style="display:none;position:fixed;z-index:2000;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,0.5);min-width:160px;padding:4px 0;">
     </div>
 
-    <script src="/static/js/app.js?v=20260707-9"></script>
+    <script src="/static/js/app.js?v=20260707-10"></script>
 </body>
 </html>

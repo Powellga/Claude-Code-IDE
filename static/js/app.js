@@ -25,6 +25,10 @@ let cachedProjects = [];
 let projectSearchQuery = "";
 // Notification preferences - hydrated from /api/settings on startup
 let ideSettings = { notifications_enabled: true, notification_sound: true };
+// Anthropic accounts: [{name, config_dir, api_key}] from settings; the
+// selector picks which one the NEXT session spawns under
+let ideAccounts = [];
+let currentAccount = localStorage.getItem("claudeAccount") || "Default";
 
 function activeSess() {
     return termSessions[activeTermId] || null;
@@ -86,6 +90,7 @@ function initSocket() {
                     claude_session_id: sess.claudeSessionId,
                     working_directory: sess.workingDirectory || "",
                     permission_mode: currentPermissionMode,
+                    account: sess.account || "Default",
                 });
             }
         }
@@ -221,6 +226,7 @@ async function bootstrapSessionTabs() {
         if (!sess) break; // tab cap
         sess.claudeSessionId = o.claude_session_id;
         sess.workingDirectory = o.working_directory;
+        sess.account = o.account || "Default";
         updateSessionTabEl(sess);
         sess.term.writeln("\x1b[33m  ⚡ Reattaching to running session...\x1b[0m");
         socket.emit("reattach_terminal", { terminal_id: sess.id });
@@ -326,8 +332,12 @@ function updateSessionTabEl(sess) {
     } else if (sess.running || sess.claudeSessionId) {
         name = "no project";
     }
+    if (sess.account && sess.account !== "Default") {
+        name += ` 👤${sess.account}`;
+    }
     sess.tabEl.querySelector(".session-tab-label").textContent = name;
-    sess.tabEl.title = name + (sess.running ? " (running)" : "");
+    sess.tabEl.title = name + (sess.running ? " (running)" : "") +
+        (sess.account && sess.account !== "Default" ? ` - account: ${sess.account}` : "");
     sess.tabEl.querySelector(".session-tab-dot").className =
         "session-tab-dot " + (sess.needsAttention ? "attention" : sess.running ? "running" : "idle");
 }
@@ -885,10 +895,14 @@ function startTerminal() {
     sess.term.clear();
     sess.term.writeln("\x1b[90m  Starting Claude Code...\x1b[0m\r\n");
 
+    sess.account = currentAccount;
+    updateSessionTabEl(sess);
+
     socket.emit("start_terminal", {
         terminal_id: sess.id,
         project: sess.project,
         permission_mode: currentPermissionMode,
+        account: sess.account,
     });
 }
 
@@ -1015,14 +1029,17 @@ function sendPromptToActiveSession(prompt) {
 }
 
 // Resume a saved session into the active tab if it is idle, otherwise a
-// fresh tab - a running session is never stopped to make room.
-function resumeInTab(project, claudeSessionId, workingDirectory, banner) {
+// fresh tab - a running session is never stopped to make room. The session
+// resumes under the ACCOUNT that created it (its transcript lives in that
+// account's config dir), not the current selector.
+function resumeInTab(project, claudeSessionId, workingDirectory, banner, account) {
     let sess = activeSess();
     if (!sess || sess.running) {
         sess = newSessionTab();
         if (!sess) return; // tab cap reached (toast already shown)
     }
     sess.project = project || null;
+    sess.account = account || "Default";
     updateSessionTabEl(sess);
 
     switchToTerminalPanel();
@@ -1037,6 +1054,7 @@ function resumeInTab(project, claudeSessionId, workingDirectory, banner) {
         claude_session_id: claudeSessionId,
         working_directory: workingDirectory || "",
         permission_mode: currentPermissionMode,
+        account: sess.account,
     });
 }
 
@@ -1132,6 +1150,75 @@ function setPermissionMode(mode, opts = {}) {
     if (!opts.silent && anyRunning()) {
         showToast(`"${info.label}" saved - it applies to the NEXT session. Press Shift+Tab inside the terminal to change a running session's mode.`, 6000);
     }
+}
+
+// \u2500\u2500\u2500 Anthropic Account Selector \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+//
+// Each account maps to its own CLAUDE_CONFIG_DIR (and optionally an API
+// key), letting you flip to a second subscription when the first hits its
+// usage limit. The selection applies to the NEXT session you start; running
+// tabs keep the account they spawned with, and resumes always use the
+// session's original account.
+
+function initAccountSelector() {
+    const btn = document.getElementById("btn-account");
+    const menu = document.getElementById("account-menu");
+
+    btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (menu.style.display === "none") {
+            renderAccountMenu();
+            menu.style.display = "block";
+        } else {
+            menu.style.display = "none";
+        }
+    });
+    document.addEventListener("click", () => { menu.style.display = "none"; });
+    menu.addEventListener("click", (e) => e.stopPropagation());
+
+    updateAccountLabel();
+}
+
+function renderAccountMenu() {
+    const menu = document.getElementById("account-menu");
+    menu.innerHTML = "";
+    const names = ["Default", ...ideAccounts.map(a => a.name)];
+    for (const name of names) {
+        const item = document.createElement("div");
+        item.className = "account-option" + (name === currentAccount ? " selected" : "");
+        item.textContent = (name === currentAccount ? "\u2713 " : "") + name;
+        item.addEventListener("click", () => {
+            setCurrentAccount(name);
+            menu.style.display = "none";
+        });
+        menu.appendChild(item);
+    }
+    if (ideAccounts.length === 0) {
+        const hint = document.createElement("div");
+        hint.className = "account-option-hint";
+        hint.textContent = "Add accounts in Settings (\u2699\ufe0f)";
+        menu.appendChild(hint);
+    }
+}
+
+function setCurrentAccount(name) {
+    currentAccount = name;
+    localStorage.setItem("claudeAccount", name);
+    updateAccountLabel();
+    if (anyRunning()) {
+        showToast(`Account "${name}" applies to the NEXT session you start - running tabs keep their account.`, 5000);
+    }
+}
+
+function updateAccountLabel() {
+    // A stored selection may point at a deleted account - fall back
+    if (currentAccount !== "Default" && !ideAccounts.some(a => a.name === currentAccount)) {
+        currentAccount = "Default";
+        localStorage.setItem("claudeAccount", currentAccount);
+    }
+    document.getElementById("account-label").textContent = currentAccount;
+    // Hide the selector entirely when no extra accounts are configured
+    document.getElementById("account-wrapper").style.display = "";
 }
 
 // \u2500\u2500\u2500 Toast Notifications \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
@@ -1356,6 +1443,10 @@ function initUI() {
 
     // Usage dashboard
     document.getElementById("btn-usage-refresh").addEventListener("click", loadUsage);
+
+    // Anthropic account selector + settings editor
+    initAccountSelector();
+    document.getElementById("btn-add-account").addEventListener("click", () => addAccountRow());
 
     // Git tab extras: open repo on GitHub + README viewer
     document.getElementById("btn-git-open-repo").addEventListener("click", openRepoClicked);
@@ -2115,7 +2206,8 @@ async function resumeSession() {
             project,
             session.claude_session_id,
             session.working_directory || "",
-            "\x1b[90m  Resuming previous session...\x1b[0m\r\n"
+            "\x1b[90m  Resuming previous session...\x1b[0m\r\n",
+            session.account
         );
     } catch (e) {
         console.error("Failed to resume session:", e);
@@ -2321,6 +2413,7 @@ async function openSettings() {
         document.getElementById("settings-font-size").value = settings.font_size || 14;
         document.getElementById("settings-notifications").checked = settings.notifications_enabled !== false;
         document.getElementById("settings-notification-sound").checked = settings.notification_sound !== false;
+        renderAccountsEditor(settings.accounts || []);
 
         const sel = document.getElementById("settings-default-project");
         sel.innerHTML = '<option value="">None</option>' +
@@ -2340,6 +2433,7 @@ async function saveSettings() {
     const fontSize = parseInt(document.getElementById("settings-font-size").value) || 14;
     const notificationsEnabled = document.getElementById("settings-notifications").checked;
     const notificationSound = document.getElementById("settings-notification-sound").checked;
+    const accounts = collectAccountsFromEditor();
 
     try {
         const resp = await fetch("/api/settings", {
@@ -2351,6 +2445,7 @@ async function saveSettings() {
                 font_size: fontSize,
                 notifications_enabled: notificationsEnabled,
                 notification_sound: notificationSound,
+                accounts: accounts,
             }),
         });
         if (resp.ok) {
@@ -2364,6 +2459,8 @@ async function saveSettings() {
             if (notificationsEnabled && "Notification" in window && Notification.permission === "default") {
                 Notification.requestPermission();
             }
+            ideAccounts = accounts;
+            updateAccountLabel();
             // Audible confirmation - saving is a user gesture, so this also
             // unlocks the audio engine for later background chimes
             if (notificationSound) playChime();
@@ -2403,9 +2500,67 @@ async function applyStartupSettings() {
 
         ideSettings.notifications_enabled = settings.notifications_enabled !== false;
         ideSettings.notification_sound = settings.notification_sound !== false;
+        ideAccounts = settings.accounts || [];
+        updateAccountLabel();
     } catch (e) {
         // Settings not saved yet, use defaults
     }
+}
+
+// ─── Accounts editor (Settings modal) ─────────────────────────────────────
+
+function renderAccountsEditor(accounts) {
+    const container = document.getElementById("settings-accounts");
+    container.innerHTML = "";
+    for (const acct of accounts) addAccountRow(acct);
+    if (!accounts.length) {
+        const hint = document.createElement("div");
+        hint.className = "accounts-empty-hint";
+        hint.textContent = "No extra accounts - sessions use your normal Claude Code identity.";
+        container.appendChild(hint);
+    }
+}
+
+function addAccountRow(acct = {}) {
+    const container = document.getElementById("settings-accounts");
+    const emptyHint = container.querySelector(".accounts-empty-hint");
+    if (emptyHint) emptyHint.remove();
+
+    const row = document.createElement("div");
+    row.className = "account-row";
+    const mkInput = (cls, placeholder, value, type = "text", title = "") => {
+        const inp = document.createElement("input");
+        inp.type = type;
+        inp.className = cls;
+        inp.placeholder = placeholder;
+        inp.value = value || "";
+        inp.title = title;
+        return inp;
+    };
+    row.appendChild(mkInput("acct-name", "Name (e.g. Work)", acct.name, "text", "Shown in the account selector"));
+    row.appendChild(mkInput("acct-dir", "Config dir (e.g. C:\\Users\\you\\.claude-work)", acct.config_dir, "text", "CLAUDE_CONFIG_DIR for this account - created on first use; run /login once inside a session"));
+    row.appendChild(mkInput("acct-key", "API key (optional)", acct.api_key, "password", "Sets ANTHROPIC_API_KEY for key-based accounts; leave empty for subscription logins"));
+    const remove = document.createElement("button");
+    remove.className = "account-row-remove";
+    remove.textContent = "×";
+    remove.title = "Remove this account";
+    remove.addEventListener("click", () => row.remove());
+    row.appendChild(remove);
+    container.appendChild(row);
+}
+
+function collectAccountsFromEditor() {
+    const accounts = [];
+    document.querySelectorAll("#settings-accounts .account-row").forEach(row => {
+        const name = row.querySelector(".acct-name").value.trim();
+        if (!name) return;
+        accounts.push({
+            name,
+            config_dir: row.querySelector(".acct-dir").value.trim(),
+            api_key: row.querySelector(".acct-key").value.trim(),
+        });
+    });
+    return accounts;
 }
 
 // ─── Usage Dashboard ────────────────────────────────────────────────────
@@ -2415,6 +2570,12 @@ function fmtTokens(n) {
     if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
     if (n >= 1e3) return (n / 1e3).toFixed(1) + "K";
     return String(n);
+}
+
+function fmtCost(v) {
+    if (v >= 1000) return "$" + (v / 1000).toFixed(1) + "K";
+    if (v >= 100) return "$" + v.toFixed(0);
+    return "$" + v.toFixed(2);
 }
 
 async function loadUsage() {
@@ -2449,8 +2610,31 @@ function renderUsage(data) {
         card.innerHTML =
             `<div class="usage-card-label">${escapeHtml(label)}</div>` +
             `<div class="usage-card-big">${fmtTokens(t.output)} <span>out</span></div>` +
-            `<div class="usage-card-small">${fmtTokens(t.input + t.cache_read + t.cache_creation)} in+cache · ${t.turns.toLocaleString()} turns</div>`;
+            `<div class="usage-card-small">${fmtTokens(t.input + t.cache_read + t.cache_creation)} in+cache · ${t.turns.toLocaleString()} turns</div>` +
+            `<div class="usage-card-cost" title="Estimated at API rates - for subscription accounts this is API-equivalent value, not a bill">≈ ${fmtCost(t.cost || 0)}</div>`;
         cards.appendChild(card);
+    }
+
+    // Per-account table (which Anthropic account the usage was billed to)
+    const abody = document.querySelector("#usage-accounts-table tbody");
+    abody.innerHTML = "";
+    for (const a of (data.accounts || [])) {
+        const tr = document.createElement("tr");
+        for (const c of [
+            a.account,
+            a.sessions.toLocaleString(),
+            a.turns.toLocaleString(),
+            fmtTokens(a.input),
+            fmtTokens(a.output),
+            fmtTokens(a.cache_read),
+            fmtCost(a.cost || 0),
+            (a.last_used || "").slice(0, 10),
+        ]) {
+            const td = document.createElement("td");
+            td.textContent = c;
+            tr.appendChild(td);
+        }
+        abody.appendChild(tr);
     }
 
     // Daily bar chart (output tokens)
@@ -2462,7 +2646,7 @@ function renderUsage(data) {
         const col = document.createElement("div");
         col.className = "usage-bar";
         col.style.height = Math.max(2, Math.round((d.output / max) * 100)) + "%";
-        col.title = `${d.date}\n${fmtTokens(d.output)} output · ${fmtTokens(d.input + d.cache_read + d.cache_creation)} in+cache · ${d.turns} turns`;
+        col.title = `${d.date}\n${fmtTokens(d.output)} output · ${fmtTokens(d.input + d.cache_read + d.cache_creation)} in+cache · ${d.turns} turns · ≈ ${fmtCost(d.cost || 0)}`;
         chart.appendChild(col);
     }
     if (!days.length) chart.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:12px;">No activity in the last 30 days</div>';
@@ -2481,6 +2665,7 @@ function renderUsage(data) {
             fmtTokens(p.input),
             fmtTokens(p.output),
             fmtTokens(p.cache_read),
+            fmtCost(p.cost || 0),
             (p.last_used || "").slice(0, 10),
         ];
         for (const c of cells) {
@@ -3069,7 +3254,8 @@ async function quickResume(projectName) {
             projectName,
             latest.claude_session_id,
             latest.working_directory || "",
-            `\x1b[90m  Quick-resuming last session: ${latest.summary || latest.id}...\x1b[0m\r\n`
+            `\x1b[90m  Quick-resuming last session: ${latest.summary || latest.id}...\x1b[0m\r\n`,
+            latest.account
         );
     } catch (e) {
         console.error("Quick resume failed:", e);

@@ -1487,24 +1487,92 @@ html, body {
 }
 .usage-bar:hover { opacity: 1; background: var(--accent-hover); }
 
-#usage-table {
+.usage-data-table {
     width: 100%;
     border-collapse: collapse;
     font-size: 12px;
 }
-#usage-table th {
+.usage-data-table th {
     text-align: left;
     padding: 6px 10px;
     color: var(--text-secondary);
     border-bottom: 1px solid var(--border);
     font-weight: 600;
 }
-#usage-table td {
+.usage-data-table td {
     padding: 6px 10px;
     border-bottom: 1px solid var(--bg-tertiary);
     color: var(--text-primary);
 }
-#usage-table tr:hover td { background: var(--bg-hover); }
+.usage-data-table tr:hover td { background: var(--bg-hover); }
+
+/* ─── Anthropic Accounts ───────────────────────────────────────────────── */
+
+#account-menu {
+    position: absolute;
+    bottom: calc(100% + 4px);
+    right: 0;
+    z-index: 1500;
+    min-width: 180px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.5);
+    padding: 4px 0;
+}
+
+.account-option {
+    padding: 7px 14px;
+    font-size: var(--font-size-sm);
+    color: var(--text-primary);
+    cursor: pointer;
+    white-space: nowrap;
+}
+.account-option:hover { background: var(--bg-hover); }
+.account-option.selected { color: var(--accent-hover); }
+.account-option-hint {
+    padding: 7px 14px;
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.account-row {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 6px;
+    align-items: center;
+}
+.account-row input {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text-primary);
+    font-size: 12px;
+    padding: 5px 8px;
+}
+.account-row .acct-name { width: 110px; }
+.account-row .acct-dir { flex: 1; }
+.account-row .acct-key { width: 150px; }
+.account-row-remove {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 15px;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: var(--radius);
+}
+.account-row-remove:hover { color: var(--danger); background: var(--bg-hover); }
+.accounts-empty-hint { font-size: 11px; color: var(--text-muted); padding: 4px 0; }
+
+.usage-card-cost {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--success);
+    margin-top: 4px;
+}
+
+.usage-data-table { margin-bottom: 18px; }
 
 /* ─── Utilities ────────────────────────────────────────────────────────── */
 

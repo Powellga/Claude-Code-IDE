@@ -96,7 +96,30 @@ active_terminals = {}
 
 # ─── Terminal Management ────────────────────────────────────────────────────
 
-def _spawn_terminal(sid, project_path=None, cmd=None, claude_session_id=None, term_id=None):
+def _account_env(account_name):
+    """Resolve an account name to the env overrides that select it.
+
+    Accounts live in settings.json: [{name, config_dir, api_key}]. A config
+    dir makes Claude Code use that directory's credentials/settings (each
+    account = its own CLAUDE_CONFIG_DIR, logged in separately via /login);
+    an api_key sets ANTHROPIC_API_KEY directly. "Default"/empty = no
+    overrides, i.e. the user's normal ~/.claude identity.
+    """
+    if not account_name or account_name == "Default":
+        return {}
+    for acct in load_settings().get("accounts", []):
+        if acct.get("name") == account_name:
+            env = {}
+            if acct.get("config_dir"):
+                env["CLAUDE_CONFIG_DIR"] = acct["config_dir"]
+            if acct.get("api_key"):
+                env["ANTHROPIC_API_KEY"] = acct["api_key"]
+            return env
+    print(f"[IDE] Unknown account '{account_name}' - spawning with default identity")
+    return {}
+
+
+def _spawn_terminal(sid, project_path=None, cmd=None, claude_session_id=None, term_id=None, account=None):
     """
     Spawn a Claude Code process in a PTY and wire it to the WebSocket.
 
@@ -113,6 +136,8 @@ def _spawn_terminal(sid, project_path=None, cmd=None, claude_session_id=None, te
     cwd = project_path or str(Path.home())
     cmd = cmd or CLAUDE_CMD
 
+    env = {**os.environ, "TERM": "xterm-256color", **_account_env(account)}
+
     # Session recording buffer
     session_record = {
         "id": f"sess_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}",
@@ -120,6 +145,7 @@ def _spawn_terminal(sid, project_path=None, cmd=None, claude_session_id=None, te
         "working_directory": cwd,
         "project": None,
         "claude_session_id": claude_session_id,
+        "account": account or "Default",
         "raw_output": [],
         "raw_input": [],
     }
@@ -128,7 +154,7 @@ def _spawn_terminal(sid, project_path=None, cmd=None, claude_session_id=None, te
         try:
             from winpty import PtyProcess
             # Spawn Claude Code in a Windows PTY
-            proc = PtyProcess.spawn(cmd, cwd=cwd)
+            proc = PtyProcess.spawn(cmd, cwd=cwd, env=env)
 
             def read_output():
                 """Read PTY output and send to browser via WebSocket."""
@@ -183,7 +209,7 @@ def _spawn_terminal(sid, project_path=None, cmd=None, claude_session_id=None, te
             stdout=slave_fd,
             stderr=slave_fd,
             cwd=cwd,
-            env={**os.environ, "TERM": "xterm-256color"},
+            env=env,
         )
         os.close(slave_fd)
 
@@ -229,7 +255,7 @@ def _spawn_terminal(sid, project_path=None, cmd=None, claude_session_id=None, te
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             cwd=cwd,
-            env={**os.environ, "TERM": "xterm-256color"},
+            env=env,
         )
 
         def read_output():
@@ -384,6 +410,7 @@ def save_session(record, project_name=None):
         "tags": record.get("tags", []),
         "cols": record.get("cols"),
         "rows": record.get("rows"),
+        "account": record.get("account", "Default"),
         "raw_transcript": "".join(record.get("raw_output", [])),
     }
 
@@ -642,6 +669,19 @@ def api_put_settings():
         settings["notifications_enabled"] = bool(data["notifications_enabled"])
     if "notification_sound" in data:
         settings["notification_sound"] = bool(data["notification_sound"])
+    if "accounts" in data:
+        # [{name, config_dir, api_key}] - name required, the rest optional
+        accounts = []
+        for acct in data["accounts"] or []:
+            name = (acct.get("name") or "").strip()
+            if not name or name == "Default":
+                continue
+            accounts.append({
+                "name": name,
+                "config_dir": (acct.get("config_dir") or "").strip(),
+                "api_key": (acct.get("api_key") or "").strip(),
+            })
+        settings["accounts"] = accounts
     save_settings(settings)
     return jsonify(settings)
 
@@ -658,6 +698,50 @@ CLAUDE_PROJECTS_DIR = Path.home() / ".claude" / "projects"
 
 USAGE_KEYS = ("input", "output", "cache_read", "cache_creation", "turns")
 
+# Estimated pricing per MTok (USD), used for the Usage tab's cost column.
+# Prefix-matched against the model id in the transcript (longest prefix
+# wins). Cache read ~0.1x input; cache write ~1.25x input (5-minute TTL).
+# Override or extend via a "model_pricing" object in data/settings.json.
+# For subscription (Max/Pro) accounts this is API-equivalent value, not a
+# bill.
+DEFAULT_MODEL_PRICING = {
+    "claude-fable-5":   {"input": 10.0, "output": 50.0, "cache_read": 1.0,  "cache_creation": 12.5},
+    "claude-mythos-5":  {"input": 10.0, "output": 50.0, "cache_read": 1.0,  "cache_creation": 12.5},
+    "claude-opus-4-8":  {"input": 5.0,  "output": 25.0, "cache_read": 0.5,  "cache_creation": 6.25},
+    "claude-opus-4-7":  {"input": 5.0,  "output": 25.0, "cache_read": 0.5,  "cache_creation": 6.25},
+    "claude-opus-4-6":  {"input": 5.0,  "output": 25.0, "cache_read": 0.5,  "cache_creation": 6.25},
+    "claude-opus-4-5":  {"input": 5.0,  "output": 25.0, "cache_read": 0.5,  "cache_creation": 6.25},
+    "claude-opus-4-1":  {"input": 15.0, "output": 75.0, "cache_read": 1.5,  "cache_creation": 18.75},
+    "claude-opus-4":    {"input": 15.0, "output": 75.0, "cache_read": 1.5,  "cache_creation": 18.75},
+    "claude-sonnet":    {"input": 3.0,  "output": 15.0, "cache_read": 0.3,  "cache_creation": 3.75},
+    "claude-3-5-haiku": {"input": 0.8,  "output": 4.0,  "cache_read": 0.08, "cache_creation": 1.0},
+    "claude-haiku":     {"input": 1.0,  "output": 5.0,  "cache_read": 0.1,  "cache_creation": 1.25},
+    "default":          {"input": 5.0,  "output": 25.0, "cache_read": 0.5,  "cache_creation": 6.25},
+}
+
+
+def _pricing_for_model(model, pricing):
+    best = None
+    for prefix, rates in pricing.items():
+        if prefix != "default" and model.startswith(prefix):
+            if best is None or len(prefix) > len(best[0]):
+                best = (prefix, rates)
+    return best[1] if best else pricing.get("default", DEFAULT_MODEL_PRICING["default"])
+
+
+def _cost_of_models(models, pricing):
+    """Estimated USD cost of a per-model token breakdown."""
+    cost = 0.0
+    for model, u in models.items():
+        r = _pricing_for_model(model, pricing)
+        cost += (
+            u.get("input", 0) * r.get("input", 0)
+            + u.get("output", 0) * r.get("output", 0)
+            + u.get("cache_read", 0) * r.get("cache_read", 0)
+            + u.get("cache_creation", 0) * r.get("cache_creation", 0)
+        ) / 1e6
+    return cost
+
 
 def _zero_usage():
     return {k: 0 for k in USAGE_KEYS}
@@ -668,12 +752,20 @@ def _add_usage(dst, usage):
         dst[k] += usage.get(k, 0)
 
 
+def _sum_models(models):
+    """Collapse a per-model breakdown into one flat usage dict."""
+    total = _zero_usage()
+    for u in models.values():
+        _add_usage(total, u)
+    return total
+
+
 def _parse_jsonl_usage(path):
-    """Sum token usage from one Claude Code transcript.
+    """Per-model token usage from one Claude Code transcript.
 
     Streamed responses repeat the same message id across several entries
     with identical usage - keep the last entry per message id so nothing
-    is double-counted.
+    is double-counted. Returns {"models": {model_id: usage dict}}.
     """
     per_msg = {}
     with open(path, encoding="utf-8", errors="replace") as f:
@@ -690,34 +782,42 @@ def _parse_jsonl_usage(path):
             msg = obj.get("message") or {}
             usage = msg.get("usage")
             if usage:
-                per_msg[msg.get("id") or obj.get("uuid")] = usage
-    totals = _zero_usage()
-    totals["turns"] = len(per_msg)
-    for usage in per_msg.values():
-        totals["input"] += usage.get("input_tokens", 0) or 0
-        totals["output"] += usage.get("output_tokens", 0) or 0
-        totals["cache_read"] += usage.get("cache_read_input_tokens", 0) or 0
-        totals["cache_creation"] += usage.get("cache_creation_input_tokens", 0) or 0
-    return totals
+                per_msg[msg.get("id") or obj.get("uuid")] = (msg.get("model") or "unknown", usage)
+
+    models = {}
+    for model, usage in per_msg.values():
+        bucket = models.setdefault(model, _zero_usage())
+        bucket["turns"] += 1
+        bucket["input"] += usage.get("input_tokens", 0) or 0
+        bucket["output"] += usage.get("output_tokens", 0) or 0
+        bucket["cache_read"] += usage.get("cache_read_input_tokens", 0) or 0
+        bucket["cache_creation"] += usage.get("cache_creation_input_tokens", 0) or 0
+    return {"models": models}
 
 
 @app.route("/api/usage", methods=["GET"])
 def api_usage():
-    """Aggregate token usage per project and per day for the Usage tab."""
-    # 1. Every Claude session the IDE knows about: sid -> project + created
+    """Aggregate token usage and estimated cost per project, per day, and
+    per Anthropic account for the Usage tab."""
+    settings = load_settings()
+    pricing = {**DEFAULT_MODEL_PRICING, **settings.get("model_pricing", {})}
+
+    # 1. Every Claude session the IDE knows about: sid -> project/created/account
     sess_map = {}
 
-    def note(sid, project, created):
+    def note(sid, project, created, account):
         if not sid:
             return
         cur = sess_map.get(sid)
         if not cur:
-            sess_map[sid] = {"project": project, "created": created or ""}
+            sess_map[sid] = {"project": project, "created": created or "", "account": account or "Default"}
             return
         if created and (not cur["created"] or created < cur["created"]):
             cur["created"] = created
         if project:
             cur["project"] = project
+        if account and account != "Default":
+            cur["account"] = account
 
     for project_dir in PROJECTS_DIR.iterdir():
         if not project_dir.is_dir():
@@ -726,7 +826,7 @@ def api_usage():
             try:
                 with open(fp, encoding="utf-8") as f:
                     data = json.load(f)
-                note(data.get("claude_session_id"), project_dir.name, data.get("created", ""))
+                note(data.get("claude_session_id"), project_dir.name, data.get("created", ""), data.get("account"))
             except Exception:
                 continue
     unsorted_dir = DATA_DIR / "unsorted_sessions"
@@ -735,20 +835,29 @@ def api_usage():
             try:
                 with open(fp, encoding="utf-8") as f:
                     data = json.load(f)
-                note(data.get("claude_session_id"), None, data.get("created", ""))
+                note(data.get("claude_session_id"), None, data.get("created", ""), data.get("account"))
             except Exception:
                 continue
     for info in list(active_terminals.values()):
         record = info["record"]
-        note(record.get("claude_session_id"), record.get("project"), record.get("created", ""))
+        note(record.get("claude_session_id"), record.get("project"), record.get("created", ""), record.get("account"))
 
-    # 2. Index Claude Code's transcripts in one directory walk
+    # 2. Index transcripts across every account's config dir. Sessions run
+    # under an alternate account write their jsonl to that account's
+    # CLAUDE_CONFIG_DIR/projects, not ~/.claude/projects.
+    transcript_roots = [CLAUDE_PROJECTS_DIR]
+    for acct in settings.get("accounts", []):
+        cfg = acct.get("config_dir")
+        if cfg:
+            transcript_roots.append(Path(cfg) / "projects")
     jsonl_index = {}
-    if CLAUDE_PROJECTS_DIR.exists():
-        for p in CLAUDE_PROJECTS_DIR.glob("*/*.jsonl"):
-            jsonl_index[p.stem] = p
+    for root in transcript_roots:
+        if not root.exists():
+            continue
+        for p in root.glob("*/*.jsonl"):
+            jsonl_index.setdefault(p.stem, p)
 
-    # 3. Parse (or reuse cached) usage per session
+    # 3. Parse (or reuse cached) per-model usage per session
     cache = {}
     if USAGE_CACHE_FILE.exists():
         try:
@@ -759,9 +868,18 @@ def api_usage():
     cache_dirty = False
 
     now = datetime.now()
-    totals = {"all": _zero_usage(), "last7": _zero_usage(), "last30": _zero_usage()}
+
+    def zero_bucket():
+        return {**_zero_usage(), "cost": 0.0}
+
+    def add_bucket(dst, usage, cost):
+        _add_usage(dst, usage)
+        dst["cost"] += cost
+
+    totals = {"all": zero_bucket(), "last7": zero_bucket(), "last30": zero_bucket()}
     projects_agg = {}
     days_agg = {}
+    accounts_agg = {}
     counted = 0
 
     for sid, meta in sess_map.items():
@@ -773,13 +891,18 @@ def api_usage():
         except OSError:
             continue
         entry = cache.get(sid)
-        if entry and entry.get("mtime") == stat.st_mtime and entry.get("size") == stat.st_size:
-            usage = entry["usage"]
+        # "models" distinguishes the current cache format from the pre-cost one
+        if (entry and entry.get("mtime") == stat.st_mtime and entry.get("size") == stat.st_size
+                and "models" in (entry.get("usage") or {})):
+            parsed = entry["usage"]
         else:
-            usage = _parse_jsonl_usage(path)
-            cache[sid] = {"mtime": stat.st_mtime, "size": stat.st_size, "usage": usage}
+            parsed = _parse_jsonl_usage(path)
+            cache[sid] = {"mtime": stat.st_mtime, "size": stat.st_size, "usage": parsed}
             cache_dirty = True
         counted += 1
+
+        usage = _sum_models(parsed["models"])
+        cost = _cost_of_models(parsed["models"], pricing)
 
         created = meta.get("created") or ""
         try:
@@ -787,22 +910,29 @@ def api_usage():
         except ValueError:
             age_days = None
 
-        _add_usage(totals["all"], usage)
+        add_bucket(totals["all"], usage, cost)
         if age_days is not None and age_days < 7:
-            _add_usage(totals["last7"], usage)
+            add_bucket(totals["last7"], usage, cost)
         if age_days is not None and age_days < 30:
-            _add_usage(totals["last30"], usage)
+            add_bucket(totals["last30"], usage, cost)
 
         pkey = meta.get("project") or "(no project)"
-        pa = projects_agg.setdefault(pkey, {**_zero_usage(), "sessions": 0, "last_used": ""})
-        _add_usage(pa, usage)
+        pa = projects_agg.setdefault(pkey, {**zero_bucket(), "sessions": 0, "last_used": ""})
+        add_bucket(pa, usage, cost)
         pa["sessions"] += 1
         if created > pa["last_used"]:
             pa["last_used"] = created
 
+        akey = meta.get("account") or "Default"
+        aa = accounts_agg.setdefault(akey, {**zero_bucket(), "sessions": 0, "last_used": ""})
+        add_bucket(aa, usage, cost)
+        aa["sessions"] += 1
+        if created > aa["last_used"]:
+            aa["last_used"] = created
+
         day = created[:10]
         if day and age_days is not None and age_days < 30:
-            _add_usage(days_agg.setdefault(day, _zero_usage()), usage)
+            add_bucket(days_agg.setdefault(day, zero_bucket()), usage, cost)
 
     if cache_dirty:
         try:
@@ -813,6 +943,8 @@ def api_usage():
 
     projects_out = [{"project": k, **v} for k, v in projects_agg.items()]
     projects_out.sort(key=lambda x: x["output"], reverse=True)
+    accounts_out = [{"account": k, **v} for k, v in accounts_agg.items()]
+    accounts_out.sort(key=lambda x: x["cost"], reverse=True)
     days_out = [{"date": k, **v} for k, v in sorted(days_agg.items())]
 
     return jsonify({
@@ -820,6 +952,7 @@ def api_usage():
         "sessions_counted": counted,
         "totals": totals,
         "projects": projects_out,
+        "accounts": accounts_out,
         "days": days_out,
     })
 
@@ -838,6 +971,7 @@ def api_active_terminals():
             "claude_session_id": record.get("claude_session_id"),
             "working_directory": record.get("working_directory"),
             "created": record.get("created"),
+            "account": record.get("account", "Default"),
             "attached": bool(info.get("sid")),
         })
     return jsonify(out)
@@ -2106,7 +2240,8 @@ def on_start_terminal(data):
     claude_session_id = str(uuid.uuid4())
     cmd = f"{CLAUDE_CMD} --session-id {claude_session_id}{_permission_mode_flags(permission_mode)}"
 
-    spawned = _spawn_terminal(sid, project_path, cmd=cmd, claude_session_id=claude_session_id, term_id=term_id)
+    spawned = _spawn_terminal(sid, project_path, cmd=cmd, claude_session_id=claude_session_id,
+                              term_id=term_id, account=data.get("account"))
     if spawned:
         active_terminals[spawned]["record"]["project"] = project
         emit("terminal_ready", {
@@ -2149,8 +2284,11 @@ def on_resume_session(data):
             if wd and os.path.isdir(wd):
                 project_path = wd
 
+    # A resumed session must run under the account that created it - the
+    # conversation transcript lives in that account's config dir.
     cmd = f"{CLAUDE_CMD} --resume {claude_session_id}{_permission_mode_flags(permission_mode)}"
-    spawned = _spawn_terminal(sid, project_path, cmd=cmd, claude_session_id=claude_session_id, term_id=term_id)
+    spawned = _spawn_terminal(sid, project_path, cmd=cmd, claude_session_id=claude_session_id,
+                              term_id=term_id, account=data.get("account"))
     if spawned:
         active_terminals[spawned]["record"]["project"] = project
         emit("terminal_ready", {
