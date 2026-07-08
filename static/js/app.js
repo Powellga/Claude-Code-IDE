@@ -419,6 +419,9 @@ function buildTerminalInstance(sess) {
         cursorBlink: true,
         cursorStyle: "bar",
         scrollback: 10000,
+        // One wheel notch ≈ 1-2 lines instead of xterm's default 3-5.
+        // Alt+wheel still fast-scrolls (fastScrollSensitivity default 5).
+        scrollSensitivity: 0.25,
         allowProposedApi: true,
     });
     sess.term = term;

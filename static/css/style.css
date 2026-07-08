@@ -501,6 +501,33 @@ html, body {
     height: 100%;
 }
 
+/* Prominent scrollbar on the terminal's right edge - the xterm viewport is
+   the element that actually scrolls the buffer, and the global 8px style is
+   too subtle for precise dragging through long transcripts. */
+.term-instance .xterm-viewport {
+    scrollbar-width: auto;              /* Firefox: full-size instead of thin */
+    scrollbar-color: #5a5a5a #252526;   /* Firefox: thumb, track */
+}
+.term-instance .xterm-viewport::-webkit-scrollbar {
+    width: 14px;
+}
+.term-instance .xterm-viewport::-webkit-scrollbar-track {
+    background: #252526;
+    border-left: 1px solid var(--border);
+}
+.term-instance .xterm-viewport::-webkit-scrollbar-thumb {
+    background: #5a5a5a;
+    border-radius: 7px;
+    border: 3px solid #252526;          /* inset thumb inside the track */
+    min-height: 40px;                   /* stays grabbable on huge scrollback */
+}
+.term-instance .xterm-viewport::-webkit-scrollbar-thumb:hover {
+    background: #7a7a7a;
+}
+.term-instance .xterm-viewport::-webkit-scrollbar-thumb:active {
+    background: #9a9a9a;
+}
+
 /* ─── Session Tabs (one Claude session per tab) ────────────────────────── */
 
 #session-tabbar {
