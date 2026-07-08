@@ -96,7 +96,7 @@ Vanilla JS, no build step. Key patterns:
 - Socket.IO events for terminal I/O: `terminal_output`, `terminal_input`, `terminal_ready`, `terminal_exit`
 - REST calls via `fetch()` to `/api/*` endpoints
 - Context menus built dynamically on right-click for projects and sessions
-- Tabs: Terminal, Session Viewer, Compare, CLAUDE.md Editor, Git
+- Tabs: Terminal, Session Viewer, CLAUDE.md Editor, Git (status/diffs + Open Repo button with multi-remote chooser + rendered README viewer), Usage
 
 ## Data Storage
 

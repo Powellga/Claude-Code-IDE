@@ -92,10 +92,6 @@
                     <span class="tab-icon">📄</span>
                     <span class="tab-label">Session Viewer</span>
                 </div>
-                <div class="tab" data-tab="diff" title="Compare two sessions side-by-side">
-                    <span class="tab-icon">⇔</span>
-                    <span class="tab-label">Compare</span>
-                </div>
                 <div class="tab" data-tab="claudemd" title="Edit CLAUDE.md project instructions">
                     <span class="tab-icon">📝</span>
                     <span class="tab-label">CLAUDE.md</span>
@@ -236,29 +232,6 @@
                 </div>
             </div>
 
-            <!-- Compare / Diff Panel -->
-            <div id="diff-panel" class="panel">
-                <div id="diff-toolbar">
-                    <label class="diff-label">Session A:</label>
-                    <select id="diff-select-a" class="toolbar-select" title="Select the first session to compare"></select>
-                    <label class="diff-label">Session B:</label>
-                    <select id="diff-select-b" class="toolbar-select" title="Select the second session to compare"></select>
-                    <button id="btn-compare" class="toolbar-btn primary" title="Load both transcripts side-by-side">Compare</button>
-                    <div class="toolbar-spacer"></div>
-                </div>
-                <div id="diff-container">
-                    <div id="diff-pane-a" class="diff-pane">
-                        <div class="diff-pane-header" id="diff-header-a">Session A</div>
-                        <div class="diff-pane-content" id="diff-content-a"></div>
-                    </div>
-                    <div id="diff-divider"></div>
-                    <div id="diff-pane-b" class="diff-pane">
-                        <div class="diff-pane-header" id="diff-header-b">Session B</div>
-                        <div class="diff-pane-content" id="diff-content-b"></div>
-                    </div>
-                </div>
-            </div>
-
             <!-- CLAUDE.md Editor Panel -->
             <div id="claudemd-panel" class="panel">
                 <div id="claudemd-toolbar">
@@ -277,11 +250,19 @@
                 <div id="gitdiff-toolbar">
                     <span id="gitdiff-status-label" style="font-size:12px;color:var(--text-secondary);">Select a project with a git repo</span>
                     <div class="toolbar-spacer"></div>
+                    <div id="git-open-repo-wrapper" style="position:relative;display:none;">
+                        <button id="btn-git-open-repo" class="toolbar-btn" title="Open the repository on GitHub">🌐 Open Repo</button>
+                        <div id="git-remote-menu" style="display:none;"></div>
+                    </div>
+                    <button id="btn-git-readme" class="toolbar-btn" title="Show the project's README.md">📖 README</button>
                     <button id="btn-gitdiff-refresh" class="toolbar-btn" title="Refresh git status">↻ Refresh</button>
                 </div>
                 <div id="gitdiff-content">
                     <div id="gitdiff-files" style="border-bottom:1px solid var(--border);max-height:180px;overflow-y:auto;"></div>
                     <div id="gitdiff-diff" style="flex:1;overflow:auto;padding:8px;font-family:Consolas,monospace;font-size:12px;white-space:pre-wrap;color:var(--text-secondary);"></div>
+                </div>
+                <div id="git-readme-view" style="display:none;">
+                    <div id="git-readme-content" class="markdown-body"></div>
                 </div>
             </div>
 
@@ -470,6 +451,6 @@
     <div id="context-menu" style="display:none;position:fixed;z-index:2000;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,0.5);min-width:160px;padding:4px 0;">
     </div>
 
-    <script src="/static/js/app.js?v=20260707-8"></script>
+    <script src="/static/js/app.js?v=20260707-9"></script>
 </body>
 </html>

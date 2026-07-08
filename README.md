@@ -18,7 +18,6 @@ This is not a thin wrapper or a chat UI that calls an API. It manages real PTY p
 - **Project Organization** — Group related sessions into named projects with custom working directories
 - **Session Viewer** — Browse and read past conversations with clean, readable transcripts
 - **Session Export** — Download transcripts as `.md` or `.txt` files
-- **Session Compare** — Side-by-side diff view of any two sessions within a project
 - **CLAUDE.md Editor** — Read, edit, and save CLAUDE.md project instructions directly in the IDE
 - **File Upload** — Upload files (Excel, Word, images, etc.) to the project directory for Claude to read via MCP tools
 - **Screenshot Capture** — One-click Windows Snipping Tool integration: capture a screen region and Claude analyzes it automatically
@@ -32,7 +31,7 @@ This is not a thin wrapper or a chat UI that calls an API. It manages real PTY p
 - **Live URLs** — Per-project list of live URLs (production, staging, localhost, etc.); a 🌐 button next to the Git tab opens the URL or shows a dropdown when more than one is configured
 - **Copy Session UUID** — Right-click any session in the sidebar and pick *Copy UUID* to copy its Claude Code session ID to the clipboard
 - **File Tree** — Toggle a file explorer panel alongside the terminal showing the project's working directory with path display; click any file to ask Claude to read it
-- **Git Integration** — Dedicated Git tab showing branch, changed files, recent commits, and full color-highlighted diffs; initialize new repos from the UI
+- **Git Integration** — Dedicated Git tab showing branch, changed files, recent commits, and full color-highlighted diffs; initialize new repos from the UI; open the repo on GitHub with one click (with a chooser when the project pushes to multiple repos) and read the project's README rendered right in the tab
 - **Timestamps** — Projects and sessions display their creation date and time in the sidebar
 - **Search** — Full-text search across all saved sessions (Ctrl+Shift+F)
 - **Settings** — Configurable Claude Code command, default project, and terminal font size
@@ -181,9 +180,8 @@ sessions have the elevated access needed for system-level tasks.
 |-----|---------|
 | **Terminal** | Live Claude Code sessions with full PTY emulation. A session tab strip lets you run up to 8 concurrent sessions side by side - each tab is its own Claude process bound to the project selected when it started. A slim `<` handle on the right edge opens a per-tab Monaco editor pane (collapsed by default, capped at half the window) for quick manual edits without leaving the IDE |
 | **Session Viewer** | Read saved transcripts, export as .md/.txt, or resume |
-| **Compare** | Side-by-side diff of two sessions from the same project |
 | **CLAUDE.md** | Edit project instructions file (Ctrl+S to save) |
-| **Git** | Branch info, changed files, recent commits, and color-highlighted diffs |
+| **Git** | Branch info, changed files, recent commits, and color-highlighted diffs; 🌐 Open Repo button (chooser when the project pushes to multiple repos) and a 📖 README viewer with rendered markdown |
 | **Usage** | Token usage dashboard: 7/30-day and all-time summary cards, a daily output-token bar chart, and a per-project table - parsed from Claude Code's own transcripts and cached |
 
 ## Architecture
@@ -318,6 +316,7 @@ The IDE drives Claude Code, which connects to **MCP servers** for browser automa
 - [x] Phase 25: Paste-image into the terminal - Ctrl+V with an image on the clipboard (e.g. a fresh screenshot) saves it into the tab's project directory as `pasted_image_YYYYMMDD_HHMMSS.png` and prompts Claude to analyze it; text pastes keep working exactly as before. (Full-text transcript search was already in place via Ctrl+Shift+F, so this phase was smaller than planned)
 - [x] Phase 26: Usage dashboard - a 📊 Usage tab showing token consumption parsed from Claude Code's own jsonl transcripts, matched to IDE sessions by claude_session_id. Summary cards for the last 7 days / 30 days / all time (output plus input+cache and turn counts), a 30-day output-token bar chart, and a per-project table sorted by output. Streamed responses repeat usage per message id, so entries are deduplicated before summing; parsed totals are cached by file mtime+size in data/usage_cache.json so only new activity is re-read (the first scan is slow, after that it is quick). Tokens rather than dollars - pricing tables go stale, token counts don't
 - [x] Transcript readability fix: the pyte virtual screen used for cleaning was hardcoded to 120 columns, so output from wider terminals was clipped at the boundary and wrapped into shredded fragments in the Session Viewer. Sessions now record their terminal size on resize and are cleaned at that exact width (generous 240-column default for older records - cleaning happens at view time, so old sessions benefit too), and consecutive duplicate lines from TUI redraws are collapsed
+- [x] Compare tab removed, Git tab upgraded: session-to-session diffing never answered a real question (two conversations diff as "everything changed"), so it is gone - one less tab competing for attention. The Git tab gained a 🌐 Open Repo button that opens the repository on GitHub (with a chooser when the project pushes to more than one repo, e.g. a personal and an org remote) and a 📖 README button that renders the project's README.md right in the tab (marked + DOMPurify, lazy-loaded from CDN)
 
 ## How Is This Different from Claude Desktop?
 
@@ -330,7 +329,6 @@ Claude Desktop is Anthropic's official desktop app. It's a conversation tool —
 | Session save & organize | No — conversations aren't project-aware | Yes — save, name, tag, search, organize by project |
 | Session resume | Scroll back in history | Native `--resume` restoring full context including tool calls |
 | Session export | No | Download as `.md` or `.txt` |
-| Session compare | No | Side-by-side diff of any two sessions |
 | Project management | No | Named projects with dedicated working directories |
 | CLAUDE.md editing | External editor | Integrated editor tab with Ctrl+S |
 | Working directory control | No | Each project spawns in its configured directory |

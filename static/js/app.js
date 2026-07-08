@@ -1357,6 +1357,16 @@ function initUI() {
     // Usage dashboard
     document.getElementById("btn-usage-refresh").addEventListener("click", loadUsage);
 
+    // Git tab extras: open repo on GitHub + README viewer
+    document.getElementById("btn-git-open-repo").addEventListener("click", openRepoClicked);
+    document.getElementById("btn-git-readme").addEventListener("click", toggleGitReadme);
+    document.addEventListener("click", (e) => {
+        const wrap = document.getElementById("git-open-repo-wrapper");
+        if (wrap && !wrap.contains(e.target)) {
+            document.getElementById("git-remote-menu").style.display = "none";
+        }
+    });
+
     // Settings
     document.getElementById("btn-settings").addEventListener("click", openSettings);
     document.getElementById("btn-save-settings").addEventListener("click", saveSettings);
@@ -1407,9 +1417,6 @@ function initUI() {
     document.getElementById("btn-export-md").addEventListener("click", () => exportSession("md"));
     document.getElementById("btn-export-txt").addEventListener("click", () => exportSession("txt"));
 
-    // Compare button
-    document.getElementById("btn-compare").addEventListener("click", compareSessions);
-
     // CLAUDE.md buttons
     document.getElementById("btn-claudemd-save").addEventListener("click", saveClaudeMd);
     document.getElementById("btn-claudemd-reload").addEventListener("click", loadClaudeMd);
@@ -1438,9 +1445,6 @@ function initUI() {
                 document.getElementById("btn-export-txt").style.display = "none";
                 document.getElementById("viewer-uuid").style.display = "none";
                 document.getElementById("btn-copy-uuid").style.display = "none";
-            }
-            if (tab.dataset.tab === "diff") {
-                populateDiffSelectors();
             }
             if (tab.dataset.tab === "claudemd") {
                 loadClaudeMd();
@@ -2149,58 +2153,112 @@ async function exportSession(format) {
 
 // ─── Compare / Diff ─────────────────────────────────────────────────────
 
-async function populateDiffSelectors() {
-    if (!activeProject) {
-        document.getElementById("diff-content-a").textContent = "Select a project first.";
-        document.getElementById("diff-content-b").textContent = "";
+// ─── Git Tab Extras (open repo, README viewer) ──────────────────────────
+
+// Lazy-load marked + DOMPurify from CDN for README rendering
+let _mdLibsReady = null;
+function loadMarkdownLibs() {
+    if (_mdLibsReady) return _mdLibsReady;
+    const addScript = (src) => new Promise((resolve, reject) => {
+        const s = document.createElement("script");
+        s.src = src;
+        s.onload = resolve;
+        s.onerror = () => reject(new Error("failed to load " + src));
+        document.head.appendChild(s);
+    });
+    _mdLibsReady = Promise.all([
+        addScript("https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"),
+        addScript("https://cdn.jsdelivr.net/npm/dompurify@3.0.9/dist/purify.min.js"),
+    ]).catch(e => { _mdLibsReady = null; throw e; });
+    return _mdLibsReady;
+}
+
+// Populate the Open Repo button from the project's git remotes
+async function loadGitRemotes() {
+    const wrapper = document.getElementById("git-open-repo-wrapper");
+    wrapper.style.display = "none";
+    wrapper.dataset.remotes = "[]";
+    if (!activeProject) return;
+    try {
+        const resp = await fetch(`/api/projects/${encodeURIComponent(activeProject)}/git-remotes`);
+        if (!resp.ok) return;
+        const data = await resp.json();
+        const remotes = data.remotes || [];
+        if (!remotes.length) return;
+        wrapper.dataset.remotes = JSON.stringify(remotes);
+        wrapper.style.display = "";
+    } catch (e) { /* no remotes - keep hidden */ }
+}
+
+function openRepoClicked(e) {
+    e.stopPropagation();
+    const wrapper = document.getElementById("git-open-repo-wrapper");
+    const remotes = JSON.parse(wrapper.dataset.remotes || "[]");
+    if (!remotes.length) return;
+    if (remotes.length === 1) {
+        window.open(remotes[0].url, "_blank");
         return;
     }
+    // Multiple repos - let the user pick which one to open
+    const menu = document.getElementById("git-remote-menu");
+    if (menu.style.display !== "none") {
+        menu.style.display = "none";
+        return;
+    }
+    menu.innerHTML = "";
+    for (const r of remotes) {
+        const item = document.createElement("div");
+        item.className = "git-remote-option";
+        item.textContent = r.url.replace("https://", "");
+        item.title = `${r.name}: ${r.url}`;
+        item.addEventListener("click", () => {
+            menu.style.display = "none";
+            window.open(r.url, "_blank");
+        });
+        menu.appendChild(item);
+    }
+    menu.style.display = "block";
+}
 
+// Toggle between the git status/diff view and the rendered README
+async function toggleGitReadme() {
+    const readmeView = document.getElementById("git-readme-view");
+    const diffView = document.getElementById("gitdiff-content");
+    const btn = document.getElementById("btn-git-readme");
+
+    if (readmeView.style.display !== "none") {
+        readmeView.style.display = "none";
+        diffView.style.display = "";
+        btn.classList.remove("primary");
+        return;
+    }
+    if (!activeProject) {
+        showToast("Select a project first.", 3000);
+        return;
+    }
+    const content = document.getElementById("git-readme-content");
+    content.innerHTML = '<div style="color:var(--text-muted);">Loading README…</div>';
+    readmeView.style.display = "";
+    diffView.style.display = "none";
+    btn.classList.add("primary");
     try {
-        const resp = await fetch(`/api/projects/${encodeURIComponent(activeProject)}/sessions`);
-        const sessions = await resp.json();
-
-        const options = sessions.map(s => {
-            const date = new Date(s.created);
-            const label = s.summary || `Session ${date.toLocaleDateString()}`;
-            return `<option value="${escapeAttr(s.id)}">${escapeHtml(label)} (${date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })})</option>`;
-        }).join("");
-
-        document.getElementById("diff-select-a").innerHTML = options;
-        document.getElementById("diff-select-b").innerHTML = options;
-
-        // Pre-select different sessions if possible
-        if (sessions.length >= 2) {
-            document.getElementById("diff-select-b").selectedIndex = 1;
+        const resp = await fetch(`/api/projects/${encodeURIComponent(activeProject)}/readme`);
+        const data = await resp.json();
+        if (!resp.ok) {
+            content.innerHTML = `<div style="color:var(--text-muted);">${escapeHtml(data.error || "No README found")}</div>`;
+            return;
         }
+        await loadMarkdownLibs();
+        content.innerHTML = DOMPurify.sanitize(marked.parse(data.content));
     } catch (e) {
-        console.error("Failed to populate diff selectors:", e);
+        content.textContent = "Failed to render README: " + e;
     }
 }
 
-async function compareSessions() {
-    const idA = document.getElementById("diff-select-a").value;
-    const idB = document.getElementById("diff-select-b").value;
-    if (!activeProject || !idA || !idB) return;
-
-    try {
-        const resp = await fetch(
-            `/api/sessions/compare?projectA=${encodeURIComponent(activeProject)}&sessionA=${encodeURIComponent(idA)}&projectB=${encodeURIComponent(activeProject)}&sessionB=${encodeURIComponent(idB)}`
-        );
-        const data = await resp.json();
-        if (data.error) {
-            document.getElementById("diff-content-a").textContent = data.error;
-            document.getElementById("diff-content-b").textContent = "";
-            return;
-        }
-
-        document.getElementById("diff-header-a").textContent = data.a.summary || "Session A";
-        document.getElementById("diff-header-b").textContent = data.b.summary || "Session B";
-        document.getElementById("diff-content-a").textContent = data.a.transcript || "(empty)";
-        document.getElementById("diff-content-b").textContent = data.b.transcript || "(empty)";
-    } catch (e) {
-        console.error("Compare failed:", e);
-    }
+function showGitDiffView() {
+    document.getElementById("git-readme-view").style.display = "none";
+    document.getElementById("gitdiff-content").style.display = "";
+    document.getElementById("btn-git-readme").classList.remove("primary");
 }
 
 // ─── CLAUDE.md Editor ───────────────────────────────────────────────────
@@ -2518,6 +2576,8 @@ async function takeScreenshot() {
 // ─── Git Diff ───────────────────────────────────────────────────────────
 
 async function loadGitStatus() {
+    showGitDiffView();
+    loadGitRemotes();
     if (!activeProject) {
         document.getElementById("gitdiff-status-label").textContent = "Select a project first";
         document.getElementById("gitdiff-files").innerHTML = "";

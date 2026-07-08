@@ -1348,6 +1348,59 @@ def api_git_status(name):
         return jsonify({"error": f"Git error: {str(e)}", "is_git": True, "files": [], "diff": "", "branch": "", "log": []}), 500
 
 
+@app.route("/api/projects/<name>/git-remotes", methods=["GET"])
+def api_git_remotes(name):
+    """List the repo's remote URLs as browser-openable https links.
+
+    A repo can push to several remotes (or one remote with multiple push
+    URLs) - return them all so the UI can offer a choice.
+    """
+    wd = _get_project_working_dir(name)
+    if not os.path.isdir(wd):
+        return jsonify({"error": "Working directory not found"}), 404
+    try:
+        result = _run_git(["remote", "-v"], wd)
+    except Exception:
+        return jsonify({"remotes": []})
+    if result.returncode != 0:
+        return jsonify({"remotes": []})
+
+    remotes = []
+    seen = set()
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        remote_name, url = parts[0], parts[1]
+        # Normalize to an https URL the browser can open
+        web = url
+        if web.startswith("git@"):  # git@github.com:User/Repo.git
+            web = "https://" + web[4:].replace(":", "/", 1)
+        if web.endswith(".git"):
+            web = web[:-4]
+        if not web.startswith("http"):
+            continue
+        if web in seen:
+            continue
+        seen.add(web)
+        remotes.append({"name": remote_name, "url": web})
+    return jsonify({"remotes": remotes})
+
+
+@app.route("/api/projects/<name>/readme", methods=["GET"])
+def api_project_readme(name):
+    """Return the project's README.md content for the Git tab viewer."""
+    wd = _get_project_working_dir(name)
+    if not os.path.isdir(wd):
+        return jsonify({"error": "Working directory not found"}), 404
+    for candidate in ("README.md", "readme.md", "Readme.md", "README.MD", "README"):
+        path = os.path.join(wd, candidate)
+        if os.path.isfile(path):
+            with open(path, encoding="utf-8", errors="replace") as f:
+                return jsonify({"filename": candidate, "content": f.read()})
+    return jsonify({"error": "No README found in the working directory"}), 404
+
+
 @app.route("/api/projects/<name>/git-init", methods=["POST"])
 def api_git_init(name):
     """Initialize a git repo in the project's working directory."""
@@ -1738,36 +1791,6 @@ def api_export_session(project, session_id):
         mimetype=mimetype,
         headers={"Content-Disposition": f"attachment; filename={session_id}.{ext}"},
     )
-
-
-# ── Compare API ──
-
-@app.route("/api/sessions/compare", methods=["GET"])
-def api_compare_sessions():
-    """Return cleaned transcripts for two sessions for side-by-side comparison."""
-    project_a = request.args.get("projectA", "")
-    session_a = request.args.get("sessionA", "")
-    project_b = request.args.get("projectB", "")
-    session_b = request.args.get("sessionB", "")
-
-    result = {}
-    for label, proj, sid in [("a", project_a, session_a), ("b", project_b, session_b)]:
-        sess = load_session(proj, sid)
-        if not sess:
-            return jsonify({"error": f"Session {label.upper()} not found"}), 404
-        raw = sess.get("raw_transcript", "")
-        cleaned = _clean_transcript(raw, sess.get("cols"), sess.get("rows"))
-        max_chars = 80000
-        if len(cleaned) > max_chars:
-            cleaned = "...(earlier conversation truncated)...\n" + cleaned[-max_chars:]
-        result[label] = {
-            "session_id": sid,
-            "summary": sess.get("summary", ""),
-            "created": sess.get("created", ""),
-            "transcript": cleaned,
-        }
-
-    return jsonify(result)
 
 
 # ── CLAUDE.md API ──
