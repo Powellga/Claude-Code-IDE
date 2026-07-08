@@ -1448,6 +1448,9 @@ function initUI() {
     initAccountSelector();
     document.getElementById("btn-add-account").addEventListener("click", () => addAccountRow());
 
+    // In-app guide (renders the IDE's own README)
+    document.getElementById("btn-guide").addEventListener("click", openGuide);
+
     // Git tab extras: open repo on GitHub + README viewer
     document.getElementById("btn-git-open-repo").addEventListener("click", openRepoClicked);
     document.getElementById("btn-git-readme").addEventListener("click", toggleGitReadme);
@@ -2561,6 +2564,32 @@ function collectAccountsFromEditor() {
         });
     });
     return accounts;
+}
+
+// ─── In-App Guide ───────────────────────────────────────────────────────
+//
+// Renders the IDE's own README.md in a modal, so the docs live inside the
+// tool and always match the running version.
+
+let _guideLoaded = false;
+async function openGuide() {
+    openModal("guide-modal");
+    if (_guideLoaded) return;
+    const content = document.getElementById("guide-content");
+    content.innerHTML = '<div style="color:var(--text-muted);">Loading guide…</div>';
+    try {
+        const resp = await fetch("/api/guide");
+        const data = await resp.json();
+        if (!resp.ok) {
+            content.textContent = data.error || "Guide unavailable";
+            return;
+        }
+        await loadMarkdownLibs();
+        content.innerHTML = DOMPurify.sanitize(marked.parse(data.content));
+        _guideLoaded = true;
+    } catch (e) {
+        content.textContent = "Failed to load guide: " + e;
+    }
 }
 
 // ─── Usage Dashboard ────────────────────────────────────────────────────

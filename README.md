@@ -47,6 +47,8 @@ This is not a thin wrapper or a chat UI that calls an API. It manages real PTY p
 - **Non-Blocking Git** — Git operations run in a thread pool with hard timeouts so the server never locks up
 - **Smart Defaults** — New projects auto-fill a dedicated working directory (`~/Claude-Code-IDE-Workspaces/<project-name>`)
 - **Tooltips** — Hover hints on every interactive element
+- **In-App Guide** — A ❓ button in the title bar opens this README rendered right inside the IDE, so the docs always match the running version
+- **Multi-Account** — A 👤 status-bar selector switches which Anthropic account new sessions run under (each account = its own config directory); run different accounts simultaneously in different tabs and flip over when one hits its usage limit
 - **Dark Theme** — VS Code-inspired dark UI
 
 ## What's New: Phases 20-26

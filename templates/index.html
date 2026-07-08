@@ -38,6 +38,7 @@
             <button id="btn-import" class="titlebar-btn" title="Paste text from another conversation for Claude to continue from">📋</button>
             <button id="btn-import-session" class="titlebar-btn" title="Import a Claude Code session from outside the IDE">📥</button>
             <button id="btn-search" class="titlebar-btn" title="Search sessions (Ctrl+Shift+F)">🔍</button>
+            <button id="btn-guide" class="titlebar-btn" title="IDE Guide - features, shortcuts, and how everything works">❓</button>
             <button id="btn-settings" class="titlebar-btn" title="Settings">⚙️</button>
         </div>
         <input type="file" id="file-upload-input" style="display:none;" />
@@ -471,10 +472,23 @@
         </div>
     </div>
 
+    <!-- ─── Guide Modal ────────────────────────────────────────── -->
+    <div id="guide-modal" class="modal" style="display:none;">
+        <div class="modal-content" style="width:min(1000px,88vw);max-width:none;height:86vh;display:flex;flex-direction:column;">
+            <div class="modal-header">
+                <span>📖 Claude Code IDE Guide</span>
+                <button class="modal-close" onclick="closeModal('guide-modal')">&times;</button>
+            </div>
+            <div class="modal-body" style="flex:1;overflow-y:auto;">
+                <div id="guide-content" class="markdown-body"></div>
+            </div>
+        </div>
+    </div>
+
     <!-- ─── Context Menu ─────────────────────────────────────── -->
     <div id="context-menu" style="display:none;position:fixed;z-index:2000;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,0.5);min-width:160px;padding:4px 0;">
     </div>
 
-    <script src="/static/js/app.js?v=20260707-10"></script>
+    <script src="/static/js/app.js?v=20260707-11"></script>
 </body>
 </html>

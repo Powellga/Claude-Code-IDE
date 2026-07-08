@@ -957,6 +957,18 @@ def api_usage():
     })
 
 
+# ── Guide API ──
+
+@app.route("/api/guide", methods=["GET"])
+def api_guide():
+    """The IDE's own README.md, rendered by the in-app Guide viewer."""
+    path = BASE_DIR / "README.md"
+    if not path.exists():
+        return jsonify({"error": "README.md not found next to app.py"}), 404
+    with open(path, encoding="utf-8", errors="replace") as f:
+        return jsonify({"content": f.read()})
+
+
 # ── Active Terminals API (refresh survival) ──
 
 @app.route("/api/active-terminals", methods=["GET"])
