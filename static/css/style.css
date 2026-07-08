@@ -1257,6 +1257,136 @@ html, body {
     cursor: pointer;
 }
 
+/* ─── Editor Pane (per-session Monaco, collapsed by default) ──────────── */
+
+#editor-toggle {
+    width: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-secondary);
+    border-left: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 11px;
+    cursor: pointer;
+    user-select: none;
+    transition: background var(--transition), color var(--transition);
+}
+#editor-toggle:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+#editor-pane {
+    display: flex;
+    min-width: 0;
+    border-left: 1px solid var(--border);
+    background: var(--bg-secondary);
+}
+
+#editor-pane-resizer {
+    width: 4px;
+    cursor: ew-resize;
+    background: transparent;
+    flex: 0 0 auto;
+}
+#editor-pane-resizer:hover,
+#editor-pane-resizer.dragging {
+    background: var(--accent);
+}
+
+#editor-pane-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+#editor-pane-header {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--border);
+}
+.editor-pane-title {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    color: var(--text-secondary);
+}
+
+#editor-file-tabs {
+    display: flex;
+    align-items: stretch;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    min-height: 26px;
+    border-bottom: 1px solid var(--border);
+}
+#editor-file-tabs:empty { display: none; }
+
+.editor-file-tab {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 0 8px;
+    max-width: 160px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    border-right: 1px solid var(--border);
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+}
+.editor-file-tab:hover { background: var(--bg-hover); }
+.editor-file-tab.active {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+}
+.editor-file-tab .dirty-dot { color: var(--warning); font-size: 9px; }
+.editor-file-tab .tab-close {
+    padding: 0 2px;
+    border-radius: 3px;
+    color: var(--text-secondary);
+}
+.editor-file-tab .tab-close:hover { color: var(--danger); background: var(--bg-hover); }
+.editor-file-tab .file-name { overflow: hidden; text-overflow: ellipsis; }
+
+#editor-body {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+}
+
+#editor-tree {
+    width: 170px;
+    flex: 0 0 auto;
+    overflow-y: auto;
+    border-right: 1px solid var(--border);
+    padding: 4px 0;
+    font-size: 11px;
+}
+#editor-tree .ed-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 8px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+#editor-tree .ed-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+#editor-tree .ed-item.dir { color: var(--text-primary); cursor: default; }
+#editor-tree .ed-empty { padding: 8px; color: var(--text-muted); font-size: 11px; }
+
+#editor-monaco {
+    flex: 1;
+    min-width: 0;
+}
+
 /* ─── Utilities ────────────────────────────────────────────────────────── */
 
 .hidden { display: none !important; }

@@ -921,6 +921,78 @@ def api_list_files(name):
     return jsonify({"path": wd, "tree": tree})
 
 
+# ── File Content API (editor pane) ──
+
+EDITOR_MAX_FILE_BYTES = 2 * 1024 * 1024  # don't open huge files in Monaco
+
+
+def _resolve_project_file(name, raw_path):
+    """Validate that raw_path lives inside the project's working directory.
+
+    Returns (abs_path, None) or (None, (json_error, http_status)).
+    """
+    wd = _get_project_working_dir(name)
+    if not wd or not os.path.isdir(wd):
+        return None, ({"error": "Working directory not found"}, 404)
+    if not raw_path:
+        return None, ({"error": "No path given"}, 400)
+    full = os.path.realpath(raw_path if os.path.isabs(raw_path) else os.path.join(wd, raw_path))
+    wd_real = os.path.realpath(wd)
+    try:
+        if os.path.commonpath([wd_real, full]) != wd_real:
+            return None, ({"error": "Path is outside the project working directory"}, 403)
+    except ValueError:  # different drives on Windows
+        return None, ({"error": "Path is outside the project working directory"}, 403)
+    return full, None
+
+
+@app.route("/api/projects/<name>/file", methods=["GET"])
+def api_read_file(name):
+    """Read a text file from the project working directory for the editor."""
+    full, err = _resolve_project_file(name, request.args.get("path", ""))
+    if err:
+        return jsonify(err[0]), err[1]
+    if not os.path.isfile(full):
+        return jsonify({"error": "File not found"}), 404
+    size = os.path.getsize(full)
+    if size > EDITOR_MAX_FILE_BYTES:
+        return jsonify({"error": f"File too large for the editor ({size} bytes)"}), 413
+    with open(full, "rb") as f:
+        raw = f.read()
+    if b"\x00" in raw[:8192]:
+        return jsonify({"error": "Binary file - not editable"}), 415
+    return jsonify({
+        "path": full,
+        "content": raw.decode("utf-8", errors="replace"),
+        "mtime": os.path.getmtime(full),
+    })
+
+
+@app.route("/api/projects/<name>/file", methods=["PUT"])
+def api_write_file(name):
+    """Save editor content back to disk, guarding against clobbering
+    changes made on disk (e.g. by Claude) since the file was loaded."""
+    data = request.json or {}
+    full, err = _resolve_project_file(name, data.get("path", ""))
+    if err:
+        return jsonify(err[0]), err[1]
+    if not os.path.isfile(full):
+        return jsonify({"error": "File not found"}), 404
+
+    known_mtime = data.get("known_mtime")
+    if known_mtime is not None and not data.get("force"):
+        # Tolerate float jitter across filesystems
+        if abs(os.path.getmtime(full) - float(known_mtime)) > 0.001:
+            return jsonify({"error": "changed-on-disk"}), 409
+
+    content = data.get("content")
+    if content is None:
+        return jsonify({"error": "No content"}), 400
+    with open(full, "w", encoding="utf-8", newline="") as f:
+        f.write(content)
+    return jsonify({"status": "saved", "mtime": os.path.getmtime(full)})
+
+
 def _run_git(args, cwd, timeout=5):
     """Run a git command safely in a way that never hangs.
 

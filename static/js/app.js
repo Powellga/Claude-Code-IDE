@@ -254,6 +254,7 @@ function activateSessionTab(id) {
     }
     setTimeout(() => { try { sess.fitAddon.fit(); } catch (e) { /* hidden */ } }, 30);
     refreshTerminalToolbar();
+    applyEditorPane(sess); // each tab has its own editor-pane state
     sess.term.focus();
     if (isWatching(sess)) clearAttention(sess);
 }
@@ -486,6 +487,344 @@ function fallbackCopyText(text) {
     const sess = activeSess();
     if (sess) sess.term.focus();
     return ok;
+}
+
+// ─── Editor Pane (per-session Monaco, collapsed by default) ────────────────
+//
+// Each session tab has its own editor pane state (open/closed, open files,
+// active file), but there is ONE shared Monaco instance and one pane in the
+// DOM - switching session tabs re-applies that tab's state. Monaco itself is
+// loaded lazily from the CDN the first time a pane is opened.
+
+const MONACO_CDN = "https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs";
+let monacoReady = null;   // Promise resolving to the monaco global
+let monacoEditor = null;  // the single shared editor instance
+const editorModels = {};  // path -> { model, mtime, savedVersionId, viewState, name }
+let editorPaneWidth = parseInt(localStorage.getItem("editorPaneWidth")) || 480;
+let _editorTreeProject = undefined; // project the tree was last rendered for
+
+function loadMonaco() {
+    if (monacoReady) return monacoReady;
+    monacoReady = new Promise((resolve, reject) => {
+        const s = document.createElement("script");
+        s.src = MONACO_CDN + "/loader.js";
+        s.onload = () => {
+            require.config({ paths: { vs: MONACO_CDN } });
+            require(["vs/editor/editor.main"], () => resolve(window.monaco));
+        };
+        s.onerror = () => {
+            monacoReady = null;
+            reject(new Error("could not load Monaco from CDN"));
+        };
+        document.head.appendChild(s);
+    });
+    return monacoReady;
+}
+
+function editorState(sess) {
+    if (!sess.editor) sess.editor = { open: false, files: [], activeFile: null };
+    return sess.editor;
+}
+
+function editorProject(sess) {
+    return (sess && sess.project) || activeProject;
+}
+
+function initEditorPane() {
+    document.getElementById("editor-toggle").addEventListener("click", () => {
+        const sess = activeSess();
+        if (!sess) return;
+        editorState(sess).open = true;
+        applyEditorPane(sess);
+    });
+    document.getElementById("btn-editor-close").addEventListener("click", () => {
+        const sess = activeSess();
+        if (!sess) return;
+        editorState(sess).open = false;
+        applyEditorPane(sess);
+    });
+    document.getElementById("btn-editor-refresh").addEventListener("click", () => {
+        _editorTreeProject = undefined;
+        loadEditorTree(activeSess());
+    });
+    document.getElementById("btn-editor-tree").addEventListener("click", () => {
+        const tree = document.getElementById("editor-tree");
+        const hidden = tree.style.display === "none";
+        tree.style.display = hidden ? "" : "none";
+        localStorage.setItem("editorTreeHidden", hidden ? "" : "1");
+    });
+    if (localStorage.getItem("editorTreeHidden")) {
+        document.getElementById("editor-tree").style.display = "none";
+    }
+
+    // Drag the pane's left edge; width is capped at 50% of the content area
+    const resizer = document.getElementById("editor-pane-resizer");
+    resizer.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        resizer.classList.add("dragging");
+        const split = document.getElementById("terminal-split");
+        const onMove = (ev) => {
+            const width = split.getBoundingClientRect().right - ev.clientX;
+            editorPaneWidth = Math.round(width);
+            clampEditorPaneWidth();
+        };
+        const onUp = () => {
+            resizer.classList.remove("dragging");
+            localStorage.setItem("editorPaneWidth", String(editorPaneWidth));
+            document.removeEventListener("mousemove", onMove);
+            document.removeEventListener("mouseup", onUp);
+        };
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+    });
+}
+
+function clampEditorPaneWidth() {
+    const split = document.getElementById("terminal-split");
+    const max = Math.floor(split.getBoundingClientRect().width * 0.5);
+    const width = Math.max(280, Math.min(editorPaneWidth, max));
+    const pane = document.getElementById("editor-pane");
+    pane.style.flex = "0 0 auto";
+    pane.style.width = width + "px";
+}
+
+// Render the pane to match a session tab's editor state
+function applyEditorPane(sess) {
+    const pane = document.getElementById("editor-pane");
+    const toggle = document.getElementById("editor-toggle");
+    const st = sess ? editorState(sess) : null;
+    if (!st || !st.open) {
+        pane.style.display = "none";
+        toggle.style.display = "";
+        return;
+    }
+    toggle.style.display = "none";
+    pane.style.display = "";
+    clampEditorPaneWidth();
+    renderEditorFileTabs(sess);
+    loadEditorTree(sess);
+    loadMonaco().then(() => {
+        ensureMonacoEditor();
+        setEditorActiveFile(sess, st.activeFile);
+    }).catch(e => showToast("Editor unavailable: " + e.message, 5000));
+}
+
+function ensureMonacoEditor() {
+    if (monacoEditor) return;
+    monacoEditor = monaco.editor.create(document.getElementById("editor-monaco"), {
+        theme: "vs-dark",
+        automaticLayout: true,
+        fontSize: 13,
+        minimap: { enabled: false },
+        scrollBeyondLastLine: false,
+        model: null,
+    });
+    monacoEditor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => saveActiveEditorFile());
+    monacoEditor.onDidChangeModelContent(() => {
+        const sess = activeSess();
+        if (sess) renderEditorFileTabs(sess); // keep dirty dots current
+    });
+}
+
+async function loadEditorTree(sess) {
+    const project = editorProject(sess);
+    const treeEl = document.getElementById("editor-tree");
+    if (!project) {
+        treeEl.innerHTML = '<div class="ed-empty">Select a project first</div>';
+        _editorTreeProject = null;
+        return;
+    }
+    if (_editorTreeProject === project) return; // already rendered
+    _editorTreeProject = project;
+    treeEl.innerHTML = '<div class="ed-empty">Loading…</div>';
+    try {
+        const resp = await fetch(`/api/projects/${encodeURIComponent(project)}/files`);
+        const data = await resp.json();
+        if (!resp.ok) {
+            treeEl.innerHTML = '<div class="ed-empty">No files</div>';
+            return;
+        }
+        treeEl.innerHTML = "";
+        const render = (entries, depth) => {
+            for (const entry of entries) {
+                const item = document.createElement("div");
+                item.className = "ed-item" + (entry.is_dir ? " dir" : "");
+                item.style.paddingLeft = (8 + depth * 12) + "px";
+                item.textContent = (entry.is_dir ? "📁 " : "📄 ") + entry.name;
+                item.title = entry.path;
+                if (!entry.is_dir) {
+                    item.addEventListener("click", () => {
+                        const s = activeSess();
+                        if (s) openFileInEditor(s, entry.path, entry.name);
+                    });
+                }
+                treeEl.appendChild(item);
+                if (entry.is_dir && entry.children) render(entry.children, depth + 1);
+            }
+        };
+        render(data.tree || [], 0);
+        if (!treeEl.children.length) treeEl.innerHTML = '<div class="ed-empty">No files</div>';
+    } catch (e) {
+        treeEl.innerHTML = '<div class="ed-empty">Failed to load files</div>';
+    }
+}
+
+async function openFileInEditor(sess, path, name) {
+    const st = editorState(sess);
+    const project = editorProject(sess);
+    if (!editorModels[path]) {
+        try {
+            const resp = await fetch(`/api/projects/${encodeURIComponent(project)}/file?path=${encodeURIComponent(path)}`);
+            const data = await resp.json();
+            if (!resp.ok) {
+                showToast("Open failed: " + (data.error || resp.status), 4000);
+                return;
+            }
+            await loadMonaco();
+            const uri = monaco.Uri.file(data.path);
+            let model = monaco.editor.getModel(uri);
+            if (model) model.setValue(data.content);
+            else model = monaco.editor.createModel(data.content, undefined, uri);
+            editorModels[path] = {
+                model,
+                mtime: data.mtime,
+                savedVersionId: model.getAlternativeVersionId(),
+                viewState: null,
+                name,
+            };
+        } catch (e) {
+            showToast("Open failed: " + e, 4000);
+            return;
+        }
+    }
+    if (!st.files.some(f => f.path === path)) st.files.push({ path, name });
+    ensureMonacoEditor();
+    setEditorActiveFile(sess, path);
+}
+
+function setEditorActiveFile(sess, path) {
+    const st = editorState(sess);
+    if (monacoEditor && monacoEditor.getModel()) {
+        const cur = Object.values(editorModels).find(m => m.model === monacoEditor.getModel());
+        if (cur) cur.viewState = monacoEditor.saveViewState();
+    }
+    st.activeFile = (path && st.files.some(f => f.path === path))
+        ? path
+        : (st.files[0] ? st.files[0].path : null);
+    if (monacoEditor) {
+        const entry = st.activeFile && editorModels[st.activeFile];
+        monacoEditor.setModel(entry ? entry.model : null);
+        if (entry && entry.viewState) monacoEditor.restoreViewState(entry.viewState);
+    }
+    renderEditorFileTabs(sess);
+}
+
+function editorFileIsDirty(path) {
+    const entry = editorModels[path];
+    return !!entry && entry.model.getAlternativeVersionId() !== entry.savedVersionId;
+}
+
+function renderEditorFileTabs(sess) {
+    const st = editorState(sess);
+    const bar = document.getElementById("editor-file-tabs");
+    bar.innerHTML = "";
+    for (const f of st.files) {
+        const tab = document.createElement("div");
+        tab.className = "editor-file-tab" + (f.path === st.activeFile ? " active" : "");
+        tab.title = f.path;
+        if (editorFileIsDirty(f.path)) {
+            const dot = document.createElement("span");
+            dot.className = "dirty-dot";
+            dot.textContent = "●";
+            tab.appendChild(dot);
+        }
+        const label = document.createElement("span");
+        label.className = "file-name";
+        label.textContent = f.name;
+        tab.appendChild(label);
+        const close = document.createElement("span");
+        close.className = "tab-close";
+        close.textContent = "×";
+        close.title = "Close file";
+        close.addEventListener("click", (e) => { e.stopPropagation(); closeEditorFile(sess, f.path); });
+        tab.appendChild(close);
+        tab.addEventListener("click", () => setEditorActiveFile(sess, f.path));
+        bar.appendChild(tab);
+    }
+}
+
+function closeEditorFile(sess, path) {
+    const st = editorState(sess);
+    if (editorFileIsDirty(path) && !confirm("Discard unsaved changes to this file?")) return;
+    st.files = st.files.filter(f => f.path !== path);
+    if (st.activeFile === path) setEditorActiveFile(sess, null);
+    else renderEditorFileTabs(sess);
+    // Dispose the model only if no other session tab still has the file open
+    const usedElsewhere = Object.values(termSessions).some(
+        s => s !== sess && s.editor && s.editor.files.some(f => f.path === path)
+    );
+    if (!usedElsewhere && editorModels[path]) {
+        try { editorModels[path].model.dispose(); } catch (e) { /* already gone */ }
+        delete editorModels[path];
+    }
+}
+
+async function saveActiveEditorFile(force = false) {
+    const sess = activeSess();
+    if (!sess) return;
+    const st = editorState(sess);
+    const entry = st.activeFile && editorModels[st.activeFile];
+    if (!entry) return;
+    const project = editorProject(sess);
+    try {
+        const resp = await fetch(`/api/projects/${encodeURIComponent(project)}/file`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                path: st.activeFile,
+                content: entry.model.getValue(),
+                known_mtime: entry.mtime,
+                force,
+            }),
+        });
+        const data = await resp.json();
+        if (resp.status === 409) {
+            if (confirm("This file changed on disk after you opened it (possibly by Claude).\n\nOK = overwrite the disk version with yours\nCancel = reload the disk version (your edits are lost)")) {
+                return saveActiveEditorFile(true);
+            }
+            return reloadEditorFile(sess, st.activeFile);
+        }
+        if (!resp.ok) {
+            showToast("Save failed: " + (data.error || resp.status), 4000);
+            return;
+        }
+        entry.mtime = data.mtime;
+        entry.savedVersionId = entry.model.getAlternativeVersionId();
+        renderEditorFileTabs(sess);
+        showToast("Saved " + entry.name, 1500);
+    } catch (e) {
+        showToast("Save failed: " + e, 4000);
+    }
+}
+
+async function reloadEditorFile(sess, path) {
+    const entry = editorModels[path];
+    if (!entry) return;
+    const project = editorProject(sess);
+    try {
+        const resp = await fetch(`/api/projects/${encodeURIComponent(project)}/file?path=${encodeURIComponent(path)}`);
+        const data = await resp.json();
+        if (!resp.ok) {
+            showToast("Reload failed: " + (data.error || resp.status), 4000);
+            return;
+        }
+        entry.model.setValue(data.content);
+        entry.mtime = data.mtime;
+        entry.savedVersionId = entry.model.getAlternativeVersionId();
+        renderEditorFileTabs(sess);
+    } catch (e) {
+        showToast("Reload failed: " + e, 4000);
+    }
 }
 
 // ─── Terminal Controls ─────────────────────────────────────────────────────
@@ -918,6 +1257,9 @@ function initUI() {
 
     // Permission mode dropdown
     initPermissionMode();
+
+    // Editor pane (collapsed by default; < handle on the right edge)
+    initEditorPane();
 
     // Settings
     document.getElementById("btn-settings").addEventListener("click", openSettings);

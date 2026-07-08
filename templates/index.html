@@ -136,6 +136,25 @@
                         <div id="filetree-content"></div>
                     </div>
                     <div id="terminal-container"></div>
+                    <!-- Monaco editor pane: per-session-tab, collapsed by default -->
+                    <div id="editor-pane" style="display:none;">
+                        <div id="editor-pane-resizer" title="Drag to resize (max 50% of the window)"></div>
+                        <div id="editor-pane-main">
+                            <div id="editor-pane-header">
+                                <span class="editor-pane-title">EDITOR</span>
+                                <span style="flex:1"></span>
+                                <button id="btn-editor-tree" class="filetree-action" title="Toggle file list">🗂️</button>
+                                <button id="btn-editor-refresh" class="filetree-action" title="Refresh file list">↻</button>
+                                <button id="btn-editor-close" class="filetree-action" title="Close editor pane">&gt;</button>
+                            </div>
+                            <div id="editor-file-tabs"></div>
+                            <div id="editor-body">
+                                <div id="editor-tree"></div>
+                                <div id="editor-monaco"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="editor-toggle" title="Open editor pane">&lt;</div>
                 </div>
                 <!-- Permission Mode Status Bar -->
                 <div id="terminal-statusbar">
@@ -424,6 +443,6 @@
     <div id="context-menu" style="display:none;position:fixed;z-index:2000;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,0.5);min-width:160px;padding:4px 0;">
     </div>
 
-    <script src="/static/js/app.js?v=20260707-4"></script>
+    <script src="/static/js/app.js?v=20260707-5"></script>
 </body>
 </html>
