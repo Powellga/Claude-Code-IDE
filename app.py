@@ -382,6 +382,8 @@ def save_session(record, project_name=None):
         "working_directory": record.get("working_directory", ""),
         "summary": record.get("summary", ""),
         "tags": record.get("tags", []),
+        "cols": record.get("cols"),
+        "rows": record.get("rows"),
         "raw_transcript": "".join(record.get("raw_output", [])),
     }
 
@@ -391,11 +393,22 @@ def save_session(record, project_name=None):
     return str(filepath)
 
 
-def _clean_transcript(raw_text):
-    """Render raw PTY output through a virtual terminal to get readable text."""
+def _clean_transcript(raw_text, cols=None, rows=None):
+    """Render raw PTY output through a virtual terminal to get readable text.
+
+    The virtual screen MUST be at least as wide as the terminal that produced
+    the output - anything narrower clips every screen row at the boundary and
+    wraps the remainder into shredded fragments. Sessions record their actual
+    size on resize; older records without one get a generous default (wider
+    than the real terminal is harmless, the excess is stripped as trailing
+    whitespace).
+    """
     import pyte
 
-    screen = pyte.HistoryScreen(120, 50, history=100000)
+    width = int(cols) if cols else 240
+    height = int(rows) if rows else 50
+
+    screen = pyte.HistoryScreen(width, height, history=100000)
     stream = pyte.Stream(screen)
     stream.feed(raw_text)
 
@@ -403,7 +416,7 @@ def _clean_transcript(raw_text):
     lines = []
     for hist_line in screen.history.top:
         chars = ''
-        for col in range(120):
+        for col in range(width):
             if col in hist_line:
                 chars += hist_line[col].data
             else:
@@ -413,7 +426,15 @@ def _clean_transcript(raw_text):
     for row in screen.display:
         lines.append(row.rstrip())
 
-    text = '\n'.join(lines)
+    # TUI apps redraw the same content frame after frame - drop consecutive
+    # identical non-blank lines so the transcript reads as prose, not frames
+    deduped = []
+    for line in lines:
+        if deduped and line and line == deduped[-1]:
+            continue
+        deduped.append(line)
+
+    text = '\n'.join(deduped)
 
     # Collapse excessive blank lines
     text = re.compile(r'\n{4,}').sub('\n\n\n', text)
@@ -1583,7 +1604,7 @@ def api_get_session_transcript(project, session_id):
         return jsonify({"error": "Session not found"}), 404
 
     raw = session.get("raw_transcript", "")
-    cleaned = _clean_transcript(raw)
+    cleaned = _clean_transcript(raw, session.get("cols"), session.get("rows"))
 
     max_chars = 80000
     if len(cleaned) > max_chars:
@@ -1683,7 +1704,7 @@ def api_export_session(project, session_id):
         return jsonify({"error": "Session not found"}), 404
 
     raw = session.get("raw_transcript", "")
-    cleaned = _clean_transcript(raw)
+    cleaned = _clean_transcript(raw, session.get("cols"), session.get("rows"))
     summary = session.get("summary", "") or session_id
     tags = ", ".join(session.get("tags", []))
     created = session.get("created", "")
@@ -1735,7 +1756,7 @@ def api_compare_sessions():
         if not sess:
             return jsonify({"error": f"Session {label.upper()} not found"}), 404
         raw = sess.get("raw_transcript", "")
-        cleaned = _clean_transcript(raw)
+        cleaned = _clean_transcript(raw, sess.get("cols"), sess.get("rows"))
         max_chars = 80000
         if len(cleaned) > max_chars:
             cleaned = "...(earlier conversation truncated)...\n" + cleaned[-max_chars:]
@@ -2136,6 +2157,10 @@ def on_resize(data):
         return
     rows = data.get("rows", 24)
     cols = data.get("cols", 80)
+    # Remember the terminal size so transcript cleaning can replay the raw
+    # output through a virtual screen of the SAME width (see _clean_transcript)
+    info["record"]["cols"] = cols
+    info["record"]["rows"] = rows
     try:
         if info["type"] == "winpty":
             info["proc"].setwinsize(rows, cols)
