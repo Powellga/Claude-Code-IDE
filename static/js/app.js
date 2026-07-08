@@ -46,6 +46,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Returning to the window means the user is looking at the active tab
     window.addEventListener("focus", () => clearAttention(activeSess()));
+
+    // Unlock the audio engine on the first user gesture so the notification
+    // chime can play later even while the window is unfocused
+    document.addEventListener("click", ensureAudioContext, { once: true });
+    document.addEventListener("keydown", ensureAudioContext, { once: true });
 });
 
 // ─── Socket.IO ─────────────────────────────────────────────────────────────
@@ -740,18 +745,23 @@ function isWatching(sess) {
 
 function markAttention(sess, message, opts = {}) {
     if (isWatching(sess)) return; // user is already looking at this session
-    const firstTime = !sess.needsAttention;
     sess.needsAttention = true;
     updateSessionTabEl(sess);
     updateAttentionBadges();
-    if (firstTime && opts.alert && ideSettings.notifications_enabled) {
+    // Alert (OS toast + chime) at most once per attention episode - but a
+    // hook event must still escalate a flag the silent idle heuristic set
+    // first, so gate on "already alerted", not "already flagged".
+    if (opts.alert && !sess.attentionAlerted && ideSettings.notifications_enabled) {
+        sess.attentionAlerted = true;
         notifyDesktop(sess, message);
         if (ideSettings.notification_sound) playChime();
     }
 }
 
 function clearAttention(sess) {
-    if (!sess || !sess.needsAttention) return;
+    if (!sess) return;
+    sess.attentionAlerted = false;
+    if (!sess.needsAttention) return;
     sess.needsAttention = false;
     updateSessionTabEl(sess);
     updateAttentionBadges();
@@ -786,12 +796,24 @@ function notifyDesktop(sess, message) {
     } catch (e) { /* notification blocked */ }
 }
 
-// Short two-note chime via WebAudio - no audio asset needed
+// Short two-note chime via WebAudio - no audio asset needed.
+//
+// Chrome's autoplay policy: an AudioContext created while the window is
+// unfocused (exactly when notifications fire) starts suspended and cannot
+// be resumed without a user gesture - the chime would be silent. So the
+// context is created and unlocked on the FIRST user gesture after page
+// load (see the pre-warm listeners in DOMContentLoaded) and reused here.
 let _audioCtx = null;
-function playChime() {
+function ensureAudioContext() {
     try {
         _audioCtx = _audioCtx || new (window.AudioContext || window.webkitAudioContext)();
         if (_audioCtx.state === "suspended") _audioCtx.resume();
+    } catch (e) { /* audio unavailable */ }
+}
+
+function playChime() {
+    try {
+        ensureAudioContext();
         const now = _audioCtx.currentTime;
         for (const [freq, at] of [[880, 0], [1174.66, 0.12]]) {
             const osc = _audioCtx.createOscillator();
@@ -1840,6 +1862,9 @@ async function saveSettings() {
             if (notificationsEnabled && "Notification" in window && Notification.permission === "default") {
                 Notification.requestPermission();
             }
+            // Audible confirmation - saving is a user gesture, so this also
+            // unlocks the audio engine for later background chimes
+            if (notificationSound) playChime();
             closeModal("settings-modal");
         }
     } catch (e) {
