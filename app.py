@@ -593,8 +593,100 @@ def api_put_settings():
         settings["default_project"] = data["default_project"]
     if "font_size" in data:
         settings["font_size"] = max(10, min(24, int(data["font_size"])))
+    if "notifications_enabled" in data:
+        settings["notifications_enabled"] = bool(data["notifications_enabled"])
+    if "notification_sound" in data:
+        settings["notification_sound"] = bool(data["notification_sound"])
     save_settings(settings)
     return jsonify(settings)
+
+
+# ── Notifications API ──
+#
+# Claude Code's Notification hook fires when a session needs attention
+# (permission request, waiting for input). The installed hook forwards the
+# hook's stdin JSON to /api/notify via curl; the payload's session_id is
+# matched against each terminal's claude_session_id to find the owning tab.
+
+CLAUDE_SETTINGS_FILE = Path.home() / ".claude" / "settings.json"
+
+
+def _notify_hook_command():
+    port = int(os.getenv("CLAUDE_IDE_PORT", 5050))
+    return (
+        'curl.exe -s --max-time 2 -X POST -H "Content-Type: application/json" '
+        f"--data-binary @- http://localhost:{port}/api/notify"
+    )
+
+
+def _has_notify_hook(cfg):
+    for entry in cfg.get("hooks", {}).get("Notification", []):
+        for h in entry.get("hooks", []):
+            if "/api/notify" in h.get("command", ""):
+                return True
+    return False
+
+
+@app.route("/api/notify", methods=["POST"])
+def api_notify():
+    """Receive a Claude Code Notification-hook event and alert the owning tab."""
+    data = request.get_json(silent=True) or {}
+    claude_sid = data.get("session_id", "")
+    message = data.get("message") or "Claude needs your input"
+    if not claude_sid:
+        return jsonify({"error": "no session_id"}), 400
+    for tid, info in list(active_terminals.items()):
+        if info["record"].get("claude_session_id") == claude_sid:
+            socketio.emit("session_attention", {
+                "terminal_id": tid,
+                "message": message,
+            }, to=info.get("sid"))
+            return jsonify({"status": "delivered"})
+    # Session not started from this IDE (plain terminal, other machine) - fine
+    return jsonify({"status": "ignored"})
+
+
+@app.route("/api/notify-hook-status", methods=["GET"])
+def api_notify_hook_status():
+    """Report whether the IDE's Notification hook is present in ~/.claude/settings.json."""
+    try:
+        with open(CLAUDE_SETTINGS_FILE, encoding="utf-8") as f:
+            cfg = json.load(f)
+    except Exception:
+        cfg = {}
+    return jsonify({"installed": _has_notify_hook(cfg)})
+
+
+@app.route("/api/install-notify-hook", methods=["POST"])
+def api_install_notify_hook():
+    """Add the IDE's Notification hook to ~/.claude/settings.json.
+
+    Backs the file up to settings.json.bak first, and refuses to touch a
+    settings file that exists but cannot be parsed.
+    """
+    cfg = {}
+    if CLAUDE_SETTINGS_FILE.exists():
+        try:
+            with open(CLAUDE_SETTINGS_FILE, encoding="utf-8") as f:
+                cfg = json.load(f)
+        except Exception as e:
+            return jsonify({"error": f"~/.claude/settings.json is unreadable, not modifying it: {e}"}), 500
+
+    if _has_notify_hook(cfg):
+        return jsonify({"status": "already-installed"})
+
+    try:
+        if CLAUDE_SETTINGS_FILE.exists():
+            shutil.copy2(CLAUDE_SETTINGS_FILE, CLAUDE_SETTINGS_FILE.with_suffix(".json.bak"))
+        cfg.setdefault("hooks", {}).setdefault("Notification", []).append({
+            "hooks": [{"type": "command", "command": _notify_hook_command(), "timeout": 5}],
+        })
+        CLAUDE_SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(CLAUDE_SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2)
+        return jsonify({"status": "installed"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 # ── Restart API ──

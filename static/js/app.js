@@ -23,6 +23,8 @@ let currentPermissionMode = localStorage.getItem("permissionMode") || "default";
 let projectFilterMode = "all"; // "all" | "work" | "personal"
 let cachedProjects = [];
 let projectSearchQuery = "";
+// Notification preferences - hydrated from /api/settings on startup
+let ideSettings = { notifications_enabled: true, notification_sound: true };
 
 function activeSess() {
     return termSessions[activeTermId] || null;
@@ -40,6 +42,10 @@ document.addEventListener("DOMContentLoaded", () => {
     initUI();
     loadProjects();
     applyStartupSettings();
+    checkNotifyHook();
+
+    // Returning to the window means the user is looking at the active tab
+    window.addEventListener("focus", () => clearAttention(activeSess()));
 });
 
 // ─── Socket.IO ─────────────────────────────────────────────────────────────
@@ -101,7 +107,19 @@ function initSocket() {
 
     socket.on("terminal_output", (msg) => {
         const sess = routeSess(msg);
-        if (sess && msg.data) sess.term.write(msg.data);
+        if (sess && msg.data) {
+            sess.term.write(msg.data);
+            noteOutputActivity(sess);
+        }
+    });
+
+    // Claude Code's Notification hook fired for this session: it needs input
+    // (permission request, question, or idle waiting). Full treatment: dot,
+    // badges, and - when the user isn't watching - OS toast + chime.
+    socket.on("session_attention", (msg) => {
+        const sess = msg && msg.terminal_id ? termSessions[msg.terminal_id] : null;
+        if (!sess || !sess.running) return;
+        markAttention(sess, msg.message || "Claude needs your input", { alert: true });
     });
 
     socket.on("terminal_exit", (msg) => {
@@ -232,6 +250,7 @@ function activateSessionTab(id) {
     setTimeout(() => { try { sess.fitAddon.fit(); } catch (e) { /* hidden */ } }, 30);
     refreshTerminalToolbar();
     sess.term.focus();
+    if (isWatching(sess)) clearAttention(sess);
 }
 
 function closeSessionTab(id) {
@@ -265,11 +284,16 @@ function updateSessionTabEl(sess) {
     sess.tabEl.querySelector(".session-tab-label").textContent = name;
     sess.tabEl.title = name + (sess.running ? " (running)" : "");
     sess.tabEl.querySelector(".session-tab-dot").className =
-        "session-tab-dot " + (sess.running ? "running" : "idle");
+        "session-tab-dot " + (sess.needsAttention ? "attention" : sess.running ? "running" : "idle");
 }
 
 function setSessRunning(sess, running) {
     sess.running = running;
+    if (!running) {
+        clearTimeout(sess.idleTimer);
+        sess.busyStart = null;
+        clearAttention(sess);
+    }
     updateSessionTabEl(sess);
     refreshTerminalToolbar();
 }
@@ -389,6 +413,7 @@ function buildTerminalInstance(sess) {
     // Ctrl+V paste is handled above; if ctrlVJustFired, skip bracket-paste to avoid double.
     term.onData((data) => {
         if (!sess.running || !socket) return;
+        clearAttention(sess); // the user is interacting with this session
 
         const hasBracketPaste = data.includes("\x1b[200~") || data.includes("\x1b[201~");
 
@@ -685,6 +710,177 @@ function showToast(message, duration = 4000) {
     toast.classList.add("visible");
     clearTimeout(showToast._timer);
     showToast._timer = setTimeout(() => toast.classList.remove("visible"), duration);
+}
+
+// Toast with an action button (e.g. "Install hook") and a dismiss ×
+function showActionToast(message, buttonLabel, onAction, onDismiss) {
+    const old = document.getElementById("ide-action-toast");
+    if (old) old.remove();
+    const toast = document.createElement("div");
+    toast.id = "ide-action-toast";
+    const text = document.createElement("span");
+    text.textContent = message;
+    const btn = document.createElement("button");
+    btn.textContent = buttonLabel;
+    btn.addEventListener("click", () => { toast.remove(); onAction(); });
+    const close = document.createElement("button");
+    close.className = "action-toast-close";
+    close.textContent = "×";
+    close.title = "Dismiss";
+    close.addEventListener("click", () => { toast.remove(); if (onDismiss) onDismiss(); });
+    toast.append(text, btn, close);
+    document.body.appendChild(toast);
+}
+
+// ─── Session Attention (Claude needs your input) ───────────────────────────
+
+function isWatching(sess) {
+    return document.hasFocus() && !document.hidden && sess.id === activeTermId;
+}
+
+function markAttention(sess, message, opts = {}) {
+    if (isWatching(sess)) return; // user is already looking at this session
+    const firstTime = !sess.needsAttention;
+    sess.needsAttention = true;
+    updateSessionTabEl(sess);
+    updateAttentionBadges();
+    if (firstTime && opts.alert && ideSettings.notifications_enabled) {
+        notifyDesktop(sess, message);
+        if (ideSettings.notification_sound) playChime();
+    }
+}
+
+function clearAttention(sess) {
+    if (!sess || !sess.needsAttention) return;
+    sess.needsAttention = false;
+    updateSessionTabEl(sess);
+    updateAttentionBadges();
+}
+
+function updateAttentionBadges() {
+    const count = Object.values(termSessions).filter(s => s.needsAttention).length;
+    document.title = (count ? `(${count}) ` : "") + "Claude Code IDE";
+    setFaviconBadge(count > 0);
+}
+
+function notifyDesktop(sess, message) {
+    if (!("Notification" in window)) return;
+    if (Notification.permission === "default") {
+        Notification.requestPermission();
+        return;
+    }
+    if (Notification.permission !== "granted") return;
+    const p = cachedProjects.find(x => x.name === sess.project);
+    const title = (p && (p.display_name || p.name)) || sess.project || "Claude Code IDE";
+    try {
+        const n = new Notification(title, {
+            body: message,
+            icon: "/static/icons/favicon-32.png",
+            tag: "claude-ide-" + sess.id, // replaces rather than stacks per session
+        });
+        n.onclick = () => {
+            window.focus();
+            activateSessionTab(sess.id);
+            n.close();
+        };
+    } catch (e) { /* notification blocked */ }
+}
+
+// Short two-note chime via WebAudio - no audio asset needed
+let _audioCtx = null;
+function playChime() {
+    try {
+        _audioCtx = _audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+        if (_audioCtx.state === "suspended") _audioCtx.resume();
+        const now = _audioCtx.currentTime;
+        for (const [freq, at] of [[880, 0], [1174.66, 0.12]]) {
+            const osc = _audioCtx.createOscillator();
+            const gain = _audioCtx.createGain();
+            osc.type = "sine";
+            osc.frequency.value = freq;
+            gain.gain.setValueAtTime(0.0001, now + at);
+            gain.gain.exponentialRampToValueAtTime(0.08, now + at + 0.02);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + at + 0.25);
+            osc.connect(gain).connect(_audioCtx.destination);
+            osc.start(now + at);
+            osc.stop(now + at + 0.3);
+        }
+    } catch (e) { /* audio unavailable */ }
+}
+
+// Badge the favicon with an orange dot while any session needs attention
+let _baseFavicons = null;
+function setFaviconBadge(on) {
+    const links = document.querySelectorAll('link[rel="icon"]');
+    if (!links.length) return;
+    if (_baseFavicons === null) _baseFavicons = [...links].map(l => l.href);
+    if (!on) {
+        links.forEach((l, i) => { l.href = _baseFavicons[i]; });
+        return;
+    }
+    const img = new Image();
+    img.onload = () => {
+        const c = document.createElement("canvas");
+        c.width = c.height = 32;
+        const ctx = c.getContext("2d");
+        ctx.drawImage(img, 0, 0, 32, 32);
+        ctx.fillStyle = "#ff8c00";
+        ctx.beginPath();
+        ctx.arc(24, 8, 7, 0, Math.PI * 2);
+        ctx.fill();
+        const badged = c.toDataURL("image/png");
+        links.forEach(l => { l.href = badged; });
+    };
+    img.src = _baseFavicons[_baseFavicons.length - 1];
+}
+
+// Fallback signal for sessions without the Notification hook: while Claude
+// works, the TUI redraws constantly (spinner), so the output stream is noisy;
+// a sustained busy period followed by silence usually means it is waiting.
+// Conservative treatment: attention dot + badges only, no OS toast or chime.
+function noteOutputActivity(sess) {
+    const now = Date.now();
+    if (!sess.busyStart) sess.busyStart = now;
+    sess.lastOutputAt = now;
+    clearTimeout(sess.idleTimer);
+    sess.idleTimer = setTimeout(() => {
+        const busyMs = sess.lastOutputAt - sess.busyStart;
+        sess.busyStart = null;
+        if (sess.running && busyMs > 3000) {
+            markAttention(sess, "Claude looks idle - it may be waiting for you", { alert: false });
+        }
+    }, 4000);
+}
+
+// Offer (once) to install the Claude Code Notification hook that powers
+// the "needs your input" alerts
+async function checkNotifyHook() {
+    try {
+        const resp = await fetch("/api/notify-hook-status");
+        if (!resp.ok) return; // pre-Phase-22 server
+        const status = await resp.json();
+        if (status.installed || localStorage.getItem("notifyHookDismissed")) return;
+        showActionToast(
+            "Get notified when Claude needs your input? This adds a Notification hook to ~/.claude/settings.json.",
+            "Install hook",
+            async () => {
+                try {
+                    const res = await fetch("/api/install-notify-hook", { method: "POST" }).then(r => r.json());
+                    if (res.status === "installed" || res.status === "already-installed") {
+                        showToast("Notification hook installed - applies to sessions started from now on.", 5000);
+                        if ("Notification" in window && Notification.permission === "default") {
+                            Notification.requestPermission();
+                        }
+                    } else {
+                        showToast("Hook install failed: " + (res.error || "unknown error"), 6000);
+                    }
+                } catch (e) {
+                    showToast("Hook install failed: " + e, 6000);
+                }
+            },
+            () => localStorage.setItem("notifyHookDismissed", "1")
+        );
+    } catch (e) { /* server unreachable - ignore */ }
 }
 
 // ─── UI Initialization ────────────────────────────────────────────────────
@@ -1599,6 +1795,8 @@ async function openSettings() {
 
         document.getElementById("settings-claude-cmd").value = settings.claude_cmd || "claude";
         document.getElementById("settings-font-size").value = settings.font_size || 14;
+        document.getElementById("settings-notifications").checked = settings.notifications_enabled !== false;
+        document.getElementById("settings-notification-sound").checked = settings.notification_sound !== false;
 
         const sel = document.getElementById("settings-default-project");
         sel.innerHTML = '<option value="">None</option>' +
@@ -1616,6 +1814,8 @@ async function saveSettings() {
     const claudeCmd = document.getElementById("settings-claude-cmd").value.trim();
     const defaultProject = document.getElementById("settings-default-project").value;
     const fontSize = parseInt(document.getElementById("settings-font-size").value) || 14;
+    const notificationsEnabled = document.getElementById("settings-notifications").checked;
+    const notificationSound = document.getElementById("settings-notification-sound").checked;
 
     try {
         const resp = await fetch("/api/settings", {
@@ -1625,12 +1825,20 @@ async function saveSettings() {
                 claude_cmd: claudeCmd,
                 default_project: defaultProject,
                 font_size: fontSize,
+                notifications_enabled: notificationsEnabled,
+                notification_sound: notificationSound,
             }),
         });
         if (resp.ok) {
             for (const sess of Object.values(termSessions)) {
                 sess.term.options.fontSize = fontSize;
                 try { sess.fitAddon.fit(); } catch (err) { /* hidden tab */ }
+            }
+            ideSettings.notifications_enabled = notificationsEnabled;
+            ideSettings.notification_sound = notificationSound;
+            // Ask for OS notification permission the moment the user opts in
+            if (notificationsEnabled && "Notification" in window && Notification.permission === "default") {
+                Notification.requestPermission();
             }
             closeModal("settings-modal");
         }
@@ -1665,6 +1873,9 @@ async function applyStartupSettings() {
         if (settings.default_project) {
             selectProject(settings.default_project);
         }
+
+        ideSettings.notifications_enabled = settings.notifications_enabled !== false;
+        ideSettings.notification_sound = settings.notification_sound !== false;
     } catch (e) {
         // Settings not saved yet, use defaults
     }

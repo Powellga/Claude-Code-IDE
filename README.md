@@ -208,6 +208,8 @@ claude-code-ide/
 | **Claude Code Command** | CLI command to launch Claude Code (e.g. `claude`, or a full path) |
 | **Default Project** | Auto-select this project on startup |
 | **Terminal Font Size** | Adjustable 10-24px, applied immediately |
+| **Desktop notifications** | OS toast + orange tab dot when Claude needs your input and you aren't watching that session (powered by a Claude Code Notification hook the IDE offers to install) |
+| **Notification sound** | Short two-note chime alongside the desktop notification |
 
 ### Environment Variables
 
@@ -271,6 +273,7 @@ The IDE drives Claude Code, which connects to **MCP servers** for browser automa
 - [x] Phase 19: Permission mode overhaul - selection persists across page reloads (was silently resetting to Auto Accept Edits), new Default mode that sends no CLI flags so the user's settings.json `defaultMode` is no longer overridden, Ask Permissions now maps to `--permission-mode manual`, and a toast notice that mode changes apply to the next session (Shift+Tab switches a live one)
 - [x] Phase 20: Terminal copy finally works - OSC 52 clipboard bridge (Claude Code's TUI captures the mouse and "copies" selections via OSC 52, which xterm.js ignores by default; the IDE now decodes it and writes the real Windows clipboard), copy-on-select with toast when the TUI isn't capturing the mouse, visible copy-failure toasts, hidden-textarea fallback for non-secure origins, cache-busted app.js, and missing permission_mode now falls back to Default instead of forcing prompts
 - [x] Phase 21: Multi-session tabs - run up to 8 concurrent Claude Code sessions in a tab strip inside the Terminal panel. Terminals are keyed by terminal_id instead of socket connection (one page, many PTYs), every WebSocket event carries the id, each tab owns its own xterm instance and captures its project at spawn time, resume/quick-resume open in a new tab instead of stopping the running one, the project-switch guard is gone (save routing is already working-directory-based), disconnect auto-saves all running tabs, and a warning appears when two running tabs share a working directory. Frontend degrades gracefully to single-tab mode against a pre-Phase-21 server
+- [x] Phase 22: Needs-input notifications - Claude Code's native Notification hook POSTs to /api/notify (the IDE offers a one-click install of the hook into ~/.claude/settings.json, with backup); the event routes to the owning session tab as an orange pulsing dot, a "(n)" title counter, and a badged favicon, plus an OS toast and subtle chime when you aren't watching that tab. Attention clears when you focus the tab or type into the session. An idle-stream heuristic (busy burst then 4s of silence) provides a dot-only fallback for sessions without the hook. Settings toggles for notifications and sound
 
 ## How Is This Different from Claude Desktop?
 
