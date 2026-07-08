@@ -2105,16 +2105,20 @@ function renderSessionList(sessions, project) {
     }
 
     list.innerHTML = sessions.map(s => {
-        const date = new Date(s.created);
-        const dateStr = date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-        const timeStr = date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+        // Show the SAVED time - a session created hours ago but saved just
+        // now should read as "just now", matching when the user hit save
+        const saved = new Date(s.ended || s.created);
+        const dateStr = saved.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+        const timeStr = saved.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
         const label = s.summary || `Session ${dateStr}`;
 
+        const created = new Date(s.created);
+        const createdStr = `${created.toLocaleDateString("en-US", { month: "short", day: "numeric" })} ${created.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}`;
         const uuidHint = s.claude_session_id ? `\nUUID: ${s.claude_session_id}` : '';
         return `
             <div class="sidebar-item session-item ${activeSessionId === s.id ? 'active' : ''}"
                  data-session-project="${escapeAttr(project)}" data-session-id="${escapeAttr(s.id)}"
-                 title="${escapeAttr(label + ' — ' + dateStr + ' ' + timeStr + uuidHint + '\nRight-click for options.')}">
+                 title="${escapeAttr(label + '\nSaved: ' + dateStr + ' ' + timeStr + '\nStarted: ' + createdStr + uuidHint + '\nRight-click for options.')}">
                 <span class="item-icon">💬</span>
                 <span class="item-label">${escapeHtml(label)}</span>
                 <span class="session-date">${dateStr} ${timeStr}</span>

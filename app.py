@@ -485,7 +485,7 @@ def list_sessions(project_name):
         return []
 
     sessions = []
-    for fp in sorted(session_dir.glob("*.json"), reverse=True):
+    for fp in session_dir.glob("*.json"):
         try:
             with open(fp, "r", encoding="utf-8") as f:
                 data = json.load(f)
@@ -497,9 +497,13 @@ def list_sessions(project_name):
                     "tags": data.get("tags", []),
                     "claude_session_id": data.get("claude_session_id", ""),
                     "working_directory": data.get("working_directory", ""),
+                    "account": data.get("account", "Default"),
                 })
         except Exception:
             continue
+    # Newest SAVE first - a long-running session saved just now should top
+    # the list even though it was created hours ago
+    sessions.sort(key=lambda s: s.get("ended") or s.get("created") or "", reverse=True)
     return sessions
 
 
