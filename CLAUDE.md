@@ -81,13 +81,16 @@ The backend is one file organized into labeled sections:
 6. **Project Management** (lines ~375-465) - CRUD for projects, auto-creates CLAUDE.md in working dirs
 7. **Settings** (lines ~468-482) - Load/save settings JSON
 8. **REST Routes** (lines ~483-1372) - All `/api/*` endpoints
-9. **WebSocket Events** (lines ~1374-1509) - `start_terminal`, `resume_session`, `terminal_input`, `resize_terminal`, `stop_terminal`, `discard_terminal`. Every event carries a `terminal_id` (client-generated for start/resume); `_resolve_terminal_id()` validates ownership and falls back to the connection's only terminal when the field is missing (legacy frontend). Disconnect kills and auto-saves ALL terminals owned by the socket
+9. **WebSocket Events** - `start_terminal`, `resume_session`, `reattach_terminal`, `terminal_input`, `resize_terminal`, `stop_terminal`, `discard_terminal`. Every event carries a `terminal_id` (client-generated for start/resume); `_resolve_terminal_id()` validates ownership and falls back to the connection's only terminal when the field is missing (legacy frontend). Disconnect does NOT kill sessions: it orphans them (`sid = None`) with a grace timer (`CLAUDE_IDE_ORPHAN_GRACE`, default 90s). A reloading page fetches `GET /api/active-terminals` and reattaches via `reattach_terminal`, which cancels the reaper, rebinds the sid, replays the output tail, and the client sends a resize nudge to make the TUI repaint. Only when the grace expires does `_reap_orphan()` auto-save and kill. PTY reader threads resolve the terminal's CURRENT sid per emit (`_current_sid()`) - never capture the spawn-time sid
+10. **Usage API** - `/api/usage` parses Claude Code's own jsonl transcripts (`~/.claude/projects/*/<claude_session_id>.jsonl`) matched to IDE sessions. Streamed responses repeat identical usage per message id - dedupe by id before summing. Totals cached by mtime+size in `data/usage_cache.json`
 
 ## Frontend Structure (app.js)
 
 Vanilla JS, no build step. Key patterns:
 - All state is in module-level variables (e.g., `activeProject`, `socket`)
 - Multi-session tabs: `termSessions` maps `terminal_id` -> session object (own xterm instance, container div, tab element, project, running flag). `activeSess()` returns the active tab's session; toolbar buttons and upload/screenshot/import prompts always target the active tab. A tab captures its project from the sidebar at spawn time - changing the sidebar later never affects a running tab. Never reintroduce a global `terminal`/`isTerminalRunning` singleton
+- Refresh survival: the initial tab is NOT created at DOMContentLoaded - `bootstrapSessionTabs()` runs on first socket connect, reattaches any orphaned terminals from `/api/active-terminals` (reusing the server's terminal_id as the tab id), and only falls back to a blank tab. Subsequent reconnects (server restart) use the per-session `wasRunningBeforeDisconnect` auto-resume path instead
+- Paste: Ctrl+V goes through `pasteClipboardIntoSession()` - an image on the clipboard is uploaded to the tab's project directory (`pasted_image_YYYYMMDD_HHMMSS.*`) and Claude is prompted to analyze it; text falls through to a terminal paste
 - Editor pane: ONE shared Monaco instance (lazy CDN load) and one pane in the DOM, but open/closed + open-files state lives per session tab in `sess.editor`; `applyEditorPane(sess)` re-renders it on tab switch. Models are cached per file path in `editorModels` and shared across tabs. Saves send `known_mtime` and handle 409 (changed on disk) with an overwrite/reload choice - keep that guard, Claude edits the same files
 - Permission mode: persisted in `localStorage` (key `permissionMode`, default `"default"`). Modes become CLI flags only at session spawn via `_permission_mode_flags()` in app.py - `"default"` sends NO flags so the user's settings.json `defaultMode` applies (CLI flags override settings files, so never send flags unless the user explicitly picked a mode). Changing the selector never affects an already-running session; the UI shows a toast saying so
 - Socket.IO events for terminal I/O: `terminal_output`, `terminal_input`, `terminal_ready`, `terminal_exit`
@@ -99,7 +102,8 @@ Vanilla JS, no build step. Key patterns:
 
 ```
 data/
-  settings.json              # IDE settings (claude_cmd, default_project, font_size)
+  settings.json              # IDE settings (claude_cmd, default_project, font_size, notification toggles)
+  usage_cache.json           # Parsed token usage per claude_session_id, keyed by jsonl mtime+size
   projects/
     <project-name>/
       project.json           # Name, display_name, description, working_directory, pinned, created, work_related, urls[]
@@ -126,6 +130,7 @@ Archiving moves the whole project folder between `projects/` and `archived_proje
 | `CLAUDE_IDE_SHELL` | `powershell.exe` | Shell for PTY |
 | `CLAUDE_IDE_CMD` | `claude` | Claude Code CLI command |
 | `CLAUDE_IDE_PORT` | `5050` | Server port |
+| `CLAUDE_IDE_ORPHAN_GRACE` | `90` | Seconds a disconnected session survives before auto-save + kill (page refresh reattaches within this window) |
 | `CLAUDE_IDE_SECRET` | (dev key) | Flask secret key |
 
 ## Project-Specific Instructions

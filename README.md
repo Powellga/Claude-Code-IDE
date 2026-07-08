@@ -10,6 +10,9 @@ This is not a thin wrapper or a chat UI that calls an API. It manages real PTY p
 - **Multi-Session Tabs** — Run up to 8 concurrent Claude Code sessions in a tab strip, each with its own PTY process, project binding, and status dot; switch, stop, save, or discard them independently
 - **Needs-Input Notifications** — When Claude is waiting on you in a session you aren't watching, the tab gets an orange pulsing dot, the page title and favicon get a badge, and an OS toast plus a subtle chime fire (all configurable); powered by Claude Code's native Notification hook with a one-click installer
 - **Editor Pane** — A deliberately unobtrusive Monaco editor slides in from a slim `<` handle on the terminal's right edge: compact file tree, open-file tabs with dirty indicators, Ctrl+S save, changed-on-disk conflict guard, capped at half the window, remembered per session tab
+- **Refresh Survival** — Reloading the page (or accidentally closing it) no longer kills running sessions: the server keeps them alive for a grace period and the page reattaches on load, screen intact
+- **Paste-Image** — Ctrl+V an image from the clipboard straight into a session: it lands in the project directory and Claude is prompted to analyze it
+- **Usage Dashboard** — Token consumption per project and per day, parsed from Claude Code's own transcripts with 7/30-day and all-time summaries
 - **Session Recording** — Every conversation is automatically captured and cleaned via virtual terminal rendering (pyte)
 - **Session Resume** — Resume any saved session using Claude Code's native `--resume` flag
 - **Project Organization** — Group related sessions into named projects with custom working directories
@@ -47,9 +50,9 @@ This is not a thin wrapper or a chat UI that calls an API. It manages real PTY p
 - **Tooltips** — Hover hints on every interactive element
 - **Dark Theme** — VS Code-inspired dark UI
 
-## What's New: Phases 20-23
+## What's New: Phases 20-26
 
-The last four development phases turned the IDE from a single-session recorder into a parallel workbench. In order:
+The last seven development phases turned the IDE from a single-session recorder into a parallel workbench. In order:
 
 ### Phase 20 — Terminal copy that finally works (OSC 52 clipboard bridge)
 
@@ -66,6 +69,18 @@ Parallel sessions need a way to say "I'm waiting on you." Claude Code's native *
 ### Phase 23 — The unobtrusive editor pane
 
 Not a headline editor — a quick-edit surface that stays out of the way. A slim `<` handle on the terminal's right edge slides in a **Monaco** pane (lazy-loaded from CDN on first open, one shared instance); `>` tucks it away. Each session tab remembers its own pane state — open/closed, open files, active file — and the pane is drag-resizable up to a hard cap of 50% of the window. Inside: a compact toggleable file tree, open-file tabs with dirty dots, Ctrl+S save, VS Code dark theme. Because Claude edits the same files you do, saves carry the file's load-time mtime and a mismatch returns 409: you choose overwrite or reload, never a silent clobber. The backing endpoints (`GET`/`PUT /api/projects/<name>/file`) are traversal-guarded to the project working directory, detect binary files, and cap at 2 MB.
+
+### Phase 24 — Sessions survive a page refresh
+
+Previously, any disconnect killed every running session — an accidental F5 could cost you eight of them. Now a disconnect only *orphans* terminals: the server keeps the PTYs alive for a grace period (default 90s, `CLAUDE_IDE_ORPHAN_GRACE`), and a freshly loaded page reattaches to them — same terminal, same process, screen restored via output replay plus a resize nudge that makes the TUI repaint itself. If nobody comes back in time, the session auto-saves and shuts down exactly as before. (A "changes this session" review panel was considered for this slot and deliberately skipped: git plus restore-point tags already cover that need.)
+
+### Phase 25 — Paste an image, Claude sees it
+
+Ctrl+V with an image on the clipboard (say, a screenshot you just took) saves it into the tab's project directory as `pasted_image_<timestamp>.png` and prompts Claude to analyze it. Text pastes behave exactly as before.
+
+### Phase 26 — Usage dashboard
+
+A 📊 Usage tab reads token consumption straight from Claude Code's own transcripts, matched to IDE sessions: summary cards for the last 7 days, 30 days, and all time; a 30-day output-token bar chart; and a per-project table. Streamed responses repeat usage per message id, so entries are deduplicated before summing, and parsed totals are cached by file mtime so only new activity is ever re-read. It reports tokens rather than dollars — pricing tables go stale, token counts don't.
 
 ## How It Works Under the Hood
 
