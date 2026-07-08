@@ -161,7 +161,7 @@ function initSocket() {
     socket.on("terminal_exit", (msg) => {
         const sess = routeSess(msg);
         if (!sess) return;
-        sess.term.writeln("\r\n\x1b[90m── Session ended ──\x1b[0m\r\n");
+        blankEndedTerminal(sess);
         setSessRunning(sess, false);
     });
 
@@ -188,7 +188,7 @@ function initSocket() {
         // the save, but terminal_exit cannot fire after the entry is removed.
         const sess = msg && msg.terminal_id ? termSessions[msg.terminal_id] : null;
         if (sess) {
-            sess.term.writeln("\r\n\x1b[90m── Session saved ──\x1b[0m\r\n");
+            blankEndedTerminal(sess);
             if (sess.running) setSessRunning(sess, false);
         }
         loadProjects();
@@ -196,6 +196,14 @@ function initSocket() {
             loadSessions(activeProject);
         }
     });
+}
+
+// A tab whose session has ended shows an empty terminal - the transcript
+// lives in the Session Viewer. reset() wipes the screen and scrollback;
+// the cursor stays hidden until a new session starts in this tab.
+function blankEndedTerminal(sess) {
+    sess.term.reset();
+    sess.term.write("\x1b[?25l");
 }
 
 // Route a server event to its session tab. Events from a legacy backend
@@ -936,6 +944,7 @@ function startTerminal() {
     }
 
     sess.term.clear();
+    sess.term.write("\x1b[?25h"); // re-show cursor hidden by blankEndedTerminal
     sess.term.writeln("\x1b[90m  Starting Claude Code...\x1b[0m\r\n");
 
     sess.account = currentAccount;
@@ -991,7 +1000,7 @@ function discardTerminal() {
     if (!sess || !sess.running) return;
     if (!confirm("Discard this session without saving?")) return;
     socket.emit("discard_terminal", { terminal_id: sess.id });
-    sess.term.writeln("\r\n\x1b[90m── Session discarded ──\x1b[0m\r\n");
+    blankEndedTerminal(sess);
     setSessRunning(sess, false);
 }
 
@@ -1101,6 +1110,7 @@ function resumeInTab(project, claudeSessionId, workingDirectory, banner, account
     activateSessionTab(sess.id);
 
     sess.term.clear();
+    sess.term.write("\x1b[?25h"); // re-show cursor hidden by blankEndedTerminal
     sess.term.writeln(banner);
 
     socket.emit("resume_session", {

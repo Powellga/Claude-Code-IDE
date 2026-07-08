@@ -2454,6 +2454,12 @@ def on_discard_terminal(data):
 # ─── Entry Point ────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    # Werkzeug prints a "development server" warning on startup; this server is
+    # localhost-only by design, so drop that one message (request logs still show)
+    import logging
+    logging.getLogger("werkzeug").addFilter(
+        lambda record: "development server" not in record.getMessage()
+    )
     print("=" * 50)
     print("  Claude Code IDE")
     print(f"  Running as admin: {_is_admin()}")
