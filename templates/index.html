@@ -104,6 +104,10 @@
                     <span class="tab-icon">🔀</span>
                     <span class="tab-label">Git</span>
                 </div>
+                <div class="tab" data-tab="usage" title="Token usage per project and per day, from Claude Code's own transcripts">
+                    <span class="tab-icon">📊</span>
+                    <span class="tab-label">Usage</span>
+                </div>
                 <div id="navigate-wrapper" style="display:none;position:relative;">
                     <button id="btn-navigate" class="tab-action-btn" title="Open this project's live URL">🌐</button>
                     <div id="navigate-menu" style="display:none;"></div>
@@ -280,6 +284,29 @@
                     <div id="gitdiff-diff" style="flex:1;overflow:auto;padding:8px;font-family:Consolas,monospace;font-size:12px;white-space:pre-wrap;color:var(--text-secondary);"></div>
                 </div>
             </div>
+
+            <!-- Usage Panel -->
+            <div id="usage-panel" class="panel">
+                <div id="usage-toolbar">
+                    <span id="usage-status" style="font-size:12px;color:var(--text-secondary);">Token usage across all IDE sessions</span>
+                    <div class="toolbar-spacer"></div>
+                    <button id="btn-usage-refresh" class="toolbar-btn" title="Re-scan Claude Code transcripts">↻ Refresh</button>
+                </div>
+                <div id="usage-content">
+                    <div id="usage-cards"></div>
+                    <div id="usage-chart-wrap">
+                        <div class="usage-section-title">OUTPUT TOKENS - LAST 30 DAYS</div>
+                        <div id="usage-chart"></div>
+                    </div>
+                    <div class="usage-section-title">BY PROJECT</div>
+                    <table id="usage-table">
+                        <thead>
+                            <tr><th>Project</th><th>Sessions</th><th>Turns</th><th>Input</th><th>Output</th><th>Cache read</th><th>Last used</th></tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -443,6 +470,6 @@
     <div id="context-menu" style="display:none;position:fixed;z-index:2000;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,0.5);min-width:160px;padding:4px 0;">
     </div>
 
-    <script src="/static/js/app.js?v=20260707-7"></script>
+    <script src="/static/js/app.js?v=20260707-8"></script>
 </body>
 </html>

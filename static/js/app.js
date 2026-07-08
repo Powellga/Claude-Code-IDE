@@ -1354,6 +1354,9 @@ function initUI() {
     // Editor pane (collapsed by default; < handle on the right edge)
     initEditorPane();
 
+    // Usage dashboard
+    document.getElementById("btn-usage-refresh").addEventListener("click", loadUsage);
+
     // Settings
     document.getElementById("btn-settings").addEventListener("click", openSettings);
     document.getElementById("btn-save-settings").addEventListener("click", saveSettings);
@@ -1444,6 +1447,9 @@ function initUI() {
             }
             if (tab.dataset.tab === "gitdiff") {
                 loadGitStatus();
+            }
+            if (tab.dataset.tab === "usage") {
+                loadUsage();
             }
         });
     });
@@ -2341,6 +2347,90 @@ async function applyStartupSettings() {
         ideSettings.notification_sound = settings.notification_sound !== false;
     } catch (e) {
         // Settings not saved yet, use defaults
+    }
+}
+
+// ─── Usage Dashboard ────────────────────────────────────────────────────
+
+function fmtTokens(n) {
+    if (n >= 1e9) return (n / 1e9).toFixed(1) + "B";
+    if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
+    if (n >= 1e3) return (n / 1e3).toFixed(1) + "K";
+    return String(n);
+}
+
+async function loadUsage() {
+    const status = document.getElementById("usage-status");
+    status.textContent = "Scanning Claude Code transcripts... (first load can take a while)";
+    try {
+        const resp = await fetch("/api/usage");
+        const data = await resp.json();
+        if (!resp.ok) {
+            status.textContent = "Usage unavailable: " + (data.error || resp.status);
+            return;
+        }
+        status.textContent = `${data.sessions_counted} sessions with usage data · updated ${new Date(data.generated).toLocaleTimeString()}`;
+        renderUsage(data);
+    } catch (e) {
+        status.textContent = "Usage unavailable: " + e;
+    }
+}
+
+function renderUsage(data) {
+    // Summary cards
+    const cards = document.getElementById("usage-cards");
+    cards.innerHTML = "";
+    const defs = [
+        ["Last 7 days", data.totals.last7],
+        ["Last 30 days", data.totals.last30],
+        ["All time", data.totals.all],
+    ];
+    for (const [label, t] of defs) {
+        const card = document.createElement("div");
+        card.className = "usage-card";
+        card.innerHTML =
+            `<div class="usage-card-label">${escapeHtml(label)}</div>` +
+            `<div class="usage-card-big">${fmtTokens(t.output)} <span>out</span></div>` +
+            `<div class="usage-card-small">${fmtTokens(t.input + t.cache_read + t.cache_creation)} in+cache · ${t.turns.toLocaleString()} turns</div>`;
+        cards.appendChild(card);
+    }
+
+    // Daily bar chart (output tokens)
+    const chart = document.getElementById("usage-chart");
+    chart.innerHTML = "";
+    const days = data.days || [];
+    const max = Math.max(1, ...days.map(d => d.output));
+    for (const d of days) {
+        const col = document.createElement("div");
+        col.className = "usage-bar";
+        col.style.height = Math.max(2, Math.round((d.output / max) * 100)) + "%";
+        col.title = `${d.date}\n${fmtTokens(d.output)} output · ${fmtTokens(d.input + d.cache_read + d.cache_creation)} in+cache · ${d.turns} turns`;
+        chart.appendChild(col);
+    }
+    if (!days.length) chart.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:12px;">No activity in the last 30 days</div>';
+
+    // Per-project table
+    const tbody = document.querySelector("#usage-table tbody");
+    tbody.innerHTML = "";
+    for (const p of data.projects) {
+        const proj = cachedProjects.find(x => x.name === p.project);
+        const name = (proj && (proj.display_name || proj.name)) || p.project;
+        const tr = document.createElement("tr");
+        const cells = [
+            name,
+            p.sessions.toLocaleString(),
+            p.turns.toLocaleString(),
+            fmtTokens(p.input),
+            fmtTokens(p.output),
+            fmtTokens(p.cache_read),
+            (p.last_used || "").slice(0, 10),
+        ];
+        for (const c of cells) {
+            const td = document.createElement("td");
+            td.textContent = c;
+            tr.appendChild(td);
+        }
+        tbody.appendChild(tr);
     }
 }
 

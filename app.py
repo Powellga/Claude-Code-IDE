@@ -625,6 +625,184 @@ def api_put_settings():
     return jsonify(settings)
 
 
+# ── Usage API ──
+#
+# Token usage comes from Claude Code's own transcripts
+# (~/.claude/projects/<munged-wd>/<session-id>.jsonl), matched to IDE
+# sessions by claude_session_id. Parsed totals are cached by file
+# mtime+size in data/usage_cache.json so only new activity is re-read.
+
+USAGE_CACHE_FILE = DATA_DIR / "usage_cache.json"
+CLAUDE_PROJECTS_DIR = Path.home() / ".claude" / "projects"
+
+USAGE_KEYS = ("input", "output", "cache_read", "cache_creation", "turns")
+
+
+def _zero_usage():
+    return {k: 0 for k in USAGE_KEYS}
+
+
+def _add_usage(dst, usage):
+    for k in USAGE_KEYS:
+        dst[k] += usage.get(k, 0)
+
+
+def _parse_jsonl_usage(path):
+    """Sum token usage from one Claude Code transcript.
+
+    Streamed responses repeat the same message id across several entries
+    with identical usage - keep the last entry per message id so nothing
+    is double-counted.
+    """
+    per_msg = {}
+    with open(path, encoding="utf-8", errors="replace") as f:
+        for line in f:
+            # cheap prefilter before json.loads - files can be tens of MB
+            if '"usage"' not in line or '"assistant"' not in line:
+                continue
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if obj.get("type") != "assistant":
+                continue
+            msg = obj.get("message") or {}
+            usage = msg.get("usage")
+            if usage:
+                per_msg[msg.get("id") or obj.get("uuid")] = usage
+    totals = _zero_usage()
+    totals["turns"] = len(per_msg)
+    for usage in per_msg.values():
+        totals["input"] += usage.get("input_tokens", 0) or 0
+        totals["output"] += usage.get("output_tokens", 0) or 0
+        totals["cache_read"] += usage.get("cache_read_input_tokens", 0) or 0
+        totals["cache_creation"] += usage.get("cache_creation_input_tokens", 0) or 0
+    return totals
+
+
+@app.route("/api/usage", methods=["GET"])
+def api_usage():
+    """Aggregate token usage per project and per day for the Usage tab."""
+    # 1. Every Claude session the IDE knows about: sid -> project + created
+    sess_map = {}
+
+    def note(sid, project, created):
+        if not sid:
+            return
+        cur = sess_map.get(sid)
+        if not cur:
+            sess_map[sid] = {"project": project, "created": created or ""}
+            return
+        if created and (not cur["created"] or created < cur["created"]):
+            cur["created"] = created
+        if project:
+            cur["project"] = project
+
+    for project_dir in PROJECTS_DIR.iterdir():
+        if not project_dir.is_dir():
+            continue
+        for fp in (project_dir / "sessions").glob("*.json"):
+            try:
+                with open(fp, encoding="utf-8") as f:
+                    data = json.load(f)
+                note(data.get("claude_session_id"), project_dir.name, data.get("created", ""))
+            except Exception:
+                continue
+    unsorted_dir = DATA_DIR / "unsorted_sessions"
+    if unsorted_dir.exists():
+        for fp in unsorted_dir.glob("*.json"):
+            try:
+                with open(fp, encoding="utf-8") as f:
+                    data = json.load(f)
+                note(data.get("claude_session_id"), None, data.get("created", ""))
+            except Exception:
+                continue
+    for info in list(active_terminals.values()):
+        record = info["record"]
+        note(record.get("claude_session_id"), record.get("project"), record.get("created", ""))
+
+    # 2. Index Claude Code's transcripts in one directory walk
+    jsonl_index = {}
+    if CLAUDE_PROJECTS_DIR.exists():
+        for p in CLAUDE_PROJECTS_DIR.glob("*/*.jsonl"):
+            jsonl_index[p.stem] = p
+
+    # 3. Parse (or reuse cached) usage per session
+    cache = {}
+    if USAGE_CACHE_FILE.exists():
+        try:
+            with open(USAGE_CACHE_FILE, encoding="utf-8") as f:
+                cache = json.load(f)
+        except Exception:
+            cache = {}
+    cache_dirty = False
+
+    now = datetime.now()
+    totals = {"all": _zero_usage(), "last7": _zero_usage(), "last30": _zero_usage()}
+    projects_agg = {}
+    days_agg = {}
+    counted = 0
+
+    for sid, meta in sess_map.items():
+        path = jsonl_index.get(sid)
+        if not path:
+            continue
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        entry = cache.get(sid)
+        if entry and entry.get("mtime") == stat.st_mtime and entry.get("size") == stat.st_size:
+            usage = entry["usage"]
+        else:
+            usage = _parse_jsonl_usage(path)
+            cache[sid] = {"mtime": stat.st_mtime, "size": stat.st_size, "usage": usage}
+            cache_dirty = True
+        counted += 1
+
+        created = meta.get("created") or ""
+        try:
+            age_days = (now - datetime.fromisoformat(created)).days if created else None
+        except ValueError:
+            age_days = None
+
+        _add_usage(totals["all"], usage)
+        if age_days is not None and age_days < 7:
+            _add_usage(totals["last7"], usage)
+        if age_days is not None and age_days < 30:
+            _add_usage(totals["last30"], usage)
+
+        pkey = meta.get("project") or "(no project)"
+        pa = projects_agg.setdefault(pkey, {**_zero_usage(), "sessions": 0, "last_used": ""})
+        _add_usage(pa, usage)
+        pa["sessions"] += 1
+        if created > pa["last_used"]:
+            pa["last_used"] = created
+
+        day = created[:10]
+        if day and age_days is not None and age_days < 30:
+            _add_usage(days_agg.setdefault(day, _zero_usage()), usage)
+
+    if cache_dirty:
+        try:
+            with open(USAGE_CACHE_FILE, "w", encoding="utf-8") as f:
+                json.dump(cache, f)
+        except Exception:
+            pass
+
+    projects_out = [{"project": k, **v} for k, v in projects_agg.items()]
+    projects_out.sort(key=lambda x: x["output"], reverse=True)
+    days_out = [{"date": k, **v} for k, v in sorted(days_agg.items())]
+
+    return jsonify({
+        "generated": now.isoformat(),
+        "sessions_counted": counted,
+        "totals": totals,
+        "projects": projects_out,
+        "days": days_out,
+    })
+
+
 # ── Active Terminals API (refresh survival) ──
 
 @app.route("/api/active-terminals", methods=["GET"])
