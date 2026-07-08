@@ -51,9 +51,9 @@ This is not a thin wrapper or a chat UI that calls an API. It manages real PTY p
 - **Multi-Account** — A 👤 status-bar selector switches which Anthropic account new sessions run under (each account = its own config directory); run different accounts simultaneously in different tabs and flip over when one hits its usage limit
 - **Dark Theme** — VS Code-inspired dark UI
 
-## What's New: Phases 20-26
+## What's New: Phases 20-27
 
-The last seven development phases turned the IDE from a single-session recorder into a parallel workbench. In order:
+The last eight development phases turned the IDE from a single-session recorder into a parallel workbench. In order:
 
 ### Phase 20 — Terminal copy that finally works (OSC 52 clipboard bridge)
 
@@ -81,7 +81,11 @@ Ctrl+V with an image on the clipboard (say, a screenshot you just took) saves it
 
 ### Phase 26 — Usage dashboard
 
-A 📊 Usage tab reads token consumption straight from Claude Code's own transcripts, matched to IDE sessions: summary cards for the last 7 days, 30 days, and all time; a 30-day output-token bar chart; and a per-project table. Streamed responses repeat usage per message id, so entries are deduplicated before summing, and parsed totals are cached by file mtime so only new activity is ever re-read. It reports tokens rather than dollars — pricing tables go stale, token counts don't.
+A 📊 Usage tab reads token consumption straight from Claude Code's own transcripts, matched to IDE sessions: summary cards for the last 7 days, 30 days, and all time; a 30-day output-token bar chart; and a per-project table. Streamed responses repeat usage per message id, so entries are deduplicated before summing, and parsed totals are cached by file mtime so only new activity is ever re-read.
+
+### Phase 27 — Multiple Anthropic accounts, and what things cost
+
+For people with two (or more) Claude accounts: a 👤 selector in the terminal status bar picks which account the next session spawns under, so when one account hits its daily usage limit you flip to the other and keep working. Each account maps to its own `CLAUDE_CONFIG_DIR` — add it in Settings, start a session under it, run `/login` once, done. Different accounts can run **simultaneously** in different tabs, resumes always use the session's original account (its transcript lives in that account's config dir), and the server refuses to open the same session in two tabs (two processes must never write one conversation transcript). The Usage tab gained estimated cost — per-model token buckets priced from a built-in table (overridable in settings.json), shown on the cards, the project table, and a new BY ACCOUNT table that attributes usage and cost to the account that ran each session. Rounding out the phase: session tabs are labeled by session UUID (several tabs on one project were indistinguishable), an ❓ in-app Guide renders this README inside the IDE so the docs always match the running version, and `start-ide.bat` no longer auto-opens a browser on every launch — the accumulated windows were the root cause of duplicate-session races.
 
 ## How It Works Under the Hood
 
@@ -166,15 +170,15 @@ sessions have the elevated access needed for system-level tasks.
 
 1. Click **+ New Project** in the sidebar to create a project (optionally set a working directory)
 2. Select the project in the sidebar
-3. Click **Start Claude Code** to open an interactive session
+3. Click **Start Claude Code** to open an interactive session — the **+** in the session tab strip opens more (up to 8 concurrent, each tab labeled with its session UUID)
 4. When you're done, click **Stop & Save** to save the session with a summary and tags
 5. Browse past sessions in the sidebar, or use **Ctrl+Shift+F** to search
-6. Click a saved session to view it, then **Resume** to continue where you left off
-7. Use the **Compare** tab to diff two sessions side-by-side
-8. Use the **CLAUDE.md** tab to edit project instructions
-9. Click the **📎 upload button** to upload files for Claude to analyze via MCP tools
-10. Click the **✂️ screenshot button** to capture a screen region — Claude will analyze it automatically
-11. Click the **📋 import button** to paste a conversation from another source — Claude continues from it
+6. Click a saved session to view it, then **Resume** to continue where you left off (a session already open in another tab is switched to, never duplicated)
+7. Use the **CLAUDE.md** tab to edit project instructions, the **Git** tab for status/diffs/README/Open Repo, and the **Usage** tab for token and cost tracking
+8. Click the **📎 upload button** to upload files for Claude to analyze via MCP tools
+9. Click the **✂️ screenshot button** to capture a screen region — Claude will analyze it automatically
+10. Click the **📋 import button** to paste a conversation from another source — Claude continues from it
+11. Click **❓** for the in-app guide, and **⚙️** for settings (including extra Anthropic accounts)
 
 ## Tabs
 
@@ -320,6 +324,7 @@ The IDE drives Claude Code, which connects to **MCP servers** for browser automa
 - [x] Transcript readability fix: the pyte virtual screen used for cleaning was hardcoded to 120 columns, so output from wider terminals was clipped at the boundary and wrapped into shredded fragments in the Session Viewer. Sessions now record their terminal size on resize and are cleaned at that exact width (generous 240-column default for older records - cleaning happens at view time, so old sessions benefit too), and consecutive duplicate lines from TUI redraws are collapsed
 - [x] Compare tab removed, Git tab upgraded: session-to-session diffing never answered a real question (two conversations diff as "everything changed"), so it is gone - one less tab competing for attention. The Git tab gained a 🌐 Open Repo button that opens the repository on GitHub (with a chooser when the project pushes to more than one repo, e.g. a personal and an org remote) and a 📖 README button that renders the project's README.md right in the tab (marked + DOMPurify, lazy-loaded from CDN)
 - [x] Multi-account support + usage cost attribution: a 👤 account selector in the terminal status bar switches which Anthropic account the NEXT session spawns under - flip to your second account when the first hits its daily Fable 5 limit. Accounts are managed in Settings (name + config directory + optional API key); each maps to its own `CLAUDE_CONFIG_DIR`, so subscriptions log in once via `/login` in a session started under that account, and multiple accounts can run **simultaneously** in different tabs (tabs are labeled with their account). Resumes always use the session's original account, since the conversation transcript lives in that account's config dir. The Usage tab now shows estimated cost (per-model token buckets priced from a built-in table, overridable via `model_pricing` in settings.json - labeled API-equivalent value for subscription accounts) on the summary cards, the per-day tooltips, the project table, and a new BY ACCOUNT table showing which account each session's usage was billed to
+- [x] In-app Guide (❓ in the title bar renders this README inside the IDE via GET /api/guide - docs always match the running version), session tabs labeled by session UUID instead of project name (tooltip keeps project/account/full UUID), duplicate-session protection (frontend switches to the already-open tab; the server refuses a resume for a claude_session_id that is already live - also settling the multi-page auto-resume race after a server restart), and start-ide.bat no longer auto-opens a browser (accumulated IDE windows were the source of that race)
 
 ## How Is This Different from Claude Desktop?
 
