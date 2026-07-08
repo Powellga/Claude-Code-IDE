@@ -138,7 +138,11 @@ def _spawn_terminal(sid, project_path=None, cmd=None, claude_session_id=None, te
                             data = proc.read(4096)
                             if data:
                                 session_record["raw_output"].append(data)
-                                socketio.emit("terminal_output", {"terminal_id": term_id, "data": data}, to=sid)
+                                # Look up the CURRENT owner - reattach after a page
+                                # refresh rebinds the terminal to a new socket
+                                dest = _current_sid(term_id)
+                                if dest:
+                                    socketio.emit("terminal_output", {"terminal_id": term_id, "data": data}, to=dest)
                         except EOFError:
                             break
                         except Exception:
@@ -146,7 +150,9 @@ def _spawn_terminal(sid, project_path=None, cmd=None, claude_session_id=None, te
                 except Exception:
                     pass
                 finally:
-                    socketio.emit("terminal_exit", {"terminal_id": term_id, "code": 0}, to=sid)
+                    dest = _current_sid(term_id)
+                    if dest:
+                        socketio.emit("terminal_exit", {"terminal_id": term_id, "code": 0}, to=dest)
 
             thread = threading.Thread(target=read_output, daemon=True)
             thread.start()
@@ -189,12 +195,16 @@ def _spawn_terminal(sid, project_path=None, cmd=None, claude_session_id=None, te
                         data = os.read(master_fd, 4096).decode("utf-8", errors="replace")
                         if data:
                             session_record["raw_output"].append(data)
-                            socketio.emit("terminal_output", {"terminal_id": term_id, "data": data}, to=sid)
+                            dest = _current_sid(term_id)
+                            if dest:
+                                socketio.emit("terminal_output", {"terminal_id": term_id, "data": data}, to=dest)
             except (OSError, ValueError):
                 pass
             finally:
                 os.close(master_fd)
-                socketio.emit("terminal_exit", {"terminal_id": term_id, "code": proc.returncode or 0}, to=sid)
+                dest = _current_sid(term_id)
+                if dest:
+                    socketio.emit("terminal_exit", {"terminal_id": term_id, "code": proc.returncode or 0}, to=dest)
 
         thread = threading.Thread(target=read_output, daemon=True)
         thread.start()
@@ -227,11 +237,15 @@ def _spawn_terminal(sid, project_path=None, cmd=None, claude_session_id=None, te
                 for line in iter(proc.stdout.readline, b""):
                     data = line.decode("utf-8", errors="replace")
                     session_record["raw_output"].append(data)
-                    socketio.emit("terminal_output", {"terminal_id": term_id, "data": data}, to=sid)
+                    dest = _current_sid(term_id)
+                    if dest:
+                        socketio.emit("terminal_output", {"terminal_id": term_id, "data": data}, to=dest)
             except Exception:
                 pass
             finally:
-                socketio.emit("terminal_exit", {"terminal_id": term_id, "code": proc.returncode or 0}, to=sid)
+                dest = _current_sid(term_id)
+                if dest:
+                    socketio.emit("terminal_exit", {"terminal_id": term_id, "code": proc.returncode or 0}, to=dest)
 
         thread = threading.Thread(target=read_output, daemon=True)
         thread.start()
@@ -244,6 +258,12 @@ def _spawn_terminal(sid, project_path=None, cmd=None, claude_session_id=None, te
             "sid": sid,
         }
         return term_id
+
+
+def _current_sid(term_id):
+    """The socket currently attached to a terminal (None while orphaned)."""
+    info = active_terminals.get(term_id)
+    return info.get("sid") if info else None
 
 
 def _terminal_ids_for_sid(sid):
@@ -290,6 +310,10 @@ def _kill_terminal(term_id):
     info = active_terminals.pop(term_id, None)
     if not info:
         return None
+
+    timer = info.pop("orphan_timer", None)
+    if timer:
+        timer.cancel()
 
     record = info["record"]
     record["ended"] = datetime.now().isoformat()
@@ -599,6 +623,25 @@ def api_put_settings():
         settings["notification_sound"] = bool(data["notification_sound"])
     save_settings(settings)
     return jsonify(settings)
+
+
+# ── Active Terminals API (refresh survival) ──
+
+@app.route("/api/active-terminals", methods=["GET"])
+def api_active_terminals():
+    """List live terminals so a freshly loaded page can reattach to them."""
+    out = []
+    for tid, info in list(active_terminals.items()):
+        record = info["record"]
+        out.append({
+            "terminal_id": tid,
+            "project": record.get("project"),
+            "claude_session_id": record.get("claude_session_id"),
+            "working_directory": record.get("working_directory"),
+            "created": record.get("created"),
+            "attached": bool(info.get("sid")),
+        })
+    return jsonify(out)
 
 
 # ── Notifications API ──
@@ -1727,15 +1770,75 @@ def on_connect():
     print(f"[IDE] Client connected: {request.sid}")
 
 
+# How long a terminal survives without a browser attached (refresh, tab
+# close, navigation) before it is auto-saved and killed. A page refresh
+# reattaches within a second or two; the grace period is the safety net.
+ORPHAN_GRACE_SECONDS = int(os.getenv("CLAUDE_IDE_ORPHAN_GRACE", "90"))
+
+
+def _reap_orphan(term_id):
+    """Grace period expired with nobody reattached - save and kill."""
+    info = active_terminals.get(term_id)
+    if not info or info.get("sid"):
+        return  # gone already, or reattached in time
+    record = _kill_terminal(term_id)
+    if record:
+        save_session(record, record.get("project"))
+        print(f"[IDE] Orphaned terminal {term_id} auto-saved and killed after {ORPHAN_GRACE_SECONDS}s")
+
+
 @socketio.on("disconnect")
 def on_disconnect():
+    import threading
     sid = request.sid
     print(f"[IDE] Client disconnected: {sid}")
-    # Kill and auto-save every terminal this connection owned
+    # Don't kill sessions on disconnect - orphan them with a grace timer so
+    # a page refresh (or accidental navigation) can reattach and keep them.
     for tid in _terminal_ids_for_sid(sid):
-        record = _kill_terminal(tid)
-        if record:
-            save_session(record, record.get("project"))
+        info = active_terminals.get(tid)
+        if not info:
+            continue
+        info["sid"] = None
+        info["orphaned_at"] = time.time()
+        timer = threading.Timer(ORPHAN_GRACE_SECONDS, _reap_orphan, args=(tid,))
+        timer.daemon = True
+        info["orphan_timer"] = timer
+        timer.start()
+        print(f"[IDE] Terminal {tid} orphaned - reattach within {ORPHAN_GRACE_SECONDS}s or it auto-saves")
+
+
+@socketio.on("reattach_terminal")
+def on_reattach_terminal(data):
+    """Rebind an orphaned terminal to a new socket (page refresh survival)."""
+    sid = request.sid
+    tid = (data or {}).get("terminal_id")
+    info = active_terminals.get(tid)
+    if not info:
+        emit("terminal_error", {"terminal_id": tid, "message": "Session is no longer running"})
+        return
+    if info.get("sid"):
+        emit("terminal_error", {"terminal_id": tid, "message": "Session is attached to another window"})
+        return
+
+    timer = info.pop("orphan_timer", None)
+    if timer:
+        timer.cancel()
+    info.pop("orphaned_at", None)
+    info["sid"] = sid
+
+    record = info["record"]
+    # Replay the output tail so the screen isn't blank; the client then sends
+    # a resize nudge which makes the TUI repaint itself at the current size.
+    tail = "".join(record.get("raw_output", []))[-200000:]
+    if tail:
+        emit("terminal_output", {"terminal_id": tid, "data": tail})
+    emit("terminal_ready", {
+        "status": "reattached",
+        "terminal_id": tid,
+        "claude_session_id": record.get("claude_session_id"),
+        "working_directory": record.get("working_directory"),
+    })
+    print(f"[IDE] Terminal {tid} reattached to {sid}")
 
 
 def _permission_mode_flags(mode):

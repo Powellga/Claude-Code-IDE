@@ -68,7 +68,14 @@ function initSocket() {
         console.log("[IDE] Connected to server");
         showConnectionStatus("connected");
 
-        // Auto-resume every tab that was running before the disconnect
+        // First connect after page load: reattach to surviving sessions
+        if (!initSocket._bootstrapped) {
+            initSocket._bootstrapped = true;
+            bootstrapSessionTabs();
+            return;
+        }
+
+        // Reconnect (e.g. server restart): auto-resume tabs that were running
         for (const sess of Object.values(termSessions)) {
             if (sess.wasRunningBeforeDisconnect && sess.claudeSessionId) {
                 sess.wasRunningBeforeDisconnect = false;
@@ -107,6 +114,16 @@ function initSocket() {
         if (msg && msg.claude_session_id) sess.claudeSessionId = msg.claude_session_id;
         if (msg && msg.working_directory) sess.workingDirectory = msg.working_directory;
         setSessRunning(sess, true);
+        if (msg && msg.status === "reattached") {
+            // Nudge the PTY size so the TUI repaints itself after the replay
+            setTimeout(() => {
+                try { sess.fitAddon.fit(); } catch (e) { /* hidden tab */ }
+                socket.emit("resize_terminal", { terminal_id: sess.id, rows: Math.max(2, sess.term.rows - 1), cols: sess.term.cols });
+                setTimeout(() => {
+                    socket.emit("resize_terminal", { terminal_id: sess.id, rows: sess.term.rows, cols: sess.term.cols });
+                }, 150);
+            }, 200);
+        }
         if (sess.id === activeTermId) sess.term.focus();
     });
 
@@ -186,10 +203,32 @@ const TERMINAL_THEME = {
 
 function initSessionTabs() {
     document.getElementById("btn-new-session-tab").addEventListener("click", () => newSessionTab());
-    newSessionTab(); // the initial tab
+    // The initial tab is created by bootstrapSessionTabs() on first socket
+    // connect, after checking the server for live sessions to reattach.
 }
 
-function newSessionTab() {
+// On first connect, reattach to any terminals that survived a page refresh
+// (the server keeps them alive for a grace period); otherwise open a blank tab.
+async function bootstrapSessionTabs() {
+    let orphans = [];
+    try {
+        const resp = await fetch("/api/active-terminals");
+        if (resp.ok) orphans = (await resp.json()).filter(t => !t.attached);
+    } catch (e) { /* pre-Phase-24 server */ }
+
+    for (const o of orphans) {
+        const sess = newSessionTab({ id: o.terminal_id, project: o.project });
+        if (!sess) break; // tab cap
+        sess.claudeSessionId = o.claude_session_id;
+        sess.workingDirectory = o.working_directory;
+        updateSessionTabEl(sess);
+        sess.term.writeln("\x1b[33m  ⚡ Reattaching to running session...\x1b[0m");
+        socket.emit("reattach_terminal", { terminal_id: sess.id });
+    }
+    if (!Object.keys(termSessions).length) newSessionTab();
+}
+
+function newSessionTab(opts = {}) {
     const count = Object.keys(termSessions).length;
     if (count >= MAX_SESSION_TABS) {
         showToast(`Tab limit reached (${MAX_SESSION_TABS}). Close a tab first.`, 4000);
@@ -200,9 +239,9 @@ function newSessionTab() {
         return null;
     }
 
-    const id = (window.crypto && crypto.randomUUID)
+    const id = opts.id || ((window.crypto && crypto.randomUUID)
         ? crypto.randomUUID().replace(/-/g, "")
-        : Date.now().toString(36) + Math.random().toString(36).slice(2);
+        : Date.now().toString(36) + Math.random().toString(36).slice(2));
 
     const containerEl = document.createElement("div");
     containerEl.className = "term-instance";
@@ -231,7 +270,7 @@ function newSessionTab() {
         fitAddon: null,
         containerEl,
         tabEl,
-        project: null,
+        project: opts.project || null,
         running: false,
         claudeSessionId: null,
         workingDirectory: null,
@@ -1534,6 +1573,9 @@ async function loadProjects() {
         const projects = await resp.json();
         cachedProjects = projects;
         renderProjectList(projects);
+        // Session tabs resolve display names from cachedProjects - refresh
+        // labels in case tabs were created before the list arrived
+        for (const sess of Object.values(termSessions)) updateSessionTabEl(sess);
     } catch (e) {
         console.error("Failed to load projects:", e);
     }
