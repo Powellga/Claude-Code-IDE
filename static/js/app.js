@@ -97,6 +97,7 @@ function initSocket() {
                     working_directory: sess.workingDirectory || "",
                     permission_mode: currentPermissionMode,
                     account: sess.account || "Default",
+                    summary: sess.sessionLabel || "",
                 };
             }
             sess.term.writeln("\r\n\x1b[33m  ⚡ Reconnected - reattaching to session...\x1b[0m\r\n");
@@ -261,6 +262,7 @@ async function bootstrapSessionTabs() {
         sess.claudeSessionId = o.claude_session_id;
         sess.workingDirectory = o.working_directory;
         sess.account = o.account || "Default";
+        sess.sessionLabel = o.summary || null;
         updateSessionTabEl(sess);
         sess.term.writeln("\x1b[33m  ⚡ Reattaching to running session...\x1b[0m");
         socket.emit("reattach_terminal", { terminal_id: sess.id });
@@ -358,10 +360,18 @@ function closeSessionTab(id) {
     }
 }
 
+// Display name for a saved session record - matches the sidebar's labels
+// ("Session Jul 9" when the user never named it).
+function sessionDisplayLabel(s) {
+    if (s.summary) return s.summary;
+    const d = new Date(s.ended || s.created || Date.now());
+    return `Session ${d.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
+}
+
 function updateSessionTabEl(sess) {
     // Tab label = the session UUID (short form) - unique per session, so
-    // several tabs on the same project are distinguishable. Project name,
-    // full UUID, and account live in the hover tooltip.
+    // several tabs on the same project are distinguishable. Session name,
+    // project, account, and full UUID live in the hover tooltip.
     const projName = (() => {
         if (!sess.project) return "no project";
         const p = cachedProjects.find(x => x.name === sess.project);
@@ -378,11 +388,14 @@ function updateSessionTabEl(sess) {
         name += ` 👤${sess.account}`;
     }
     sess.tabEl.querySelector(".session-tab-label").textContent = name;
+    const sessName = sess.sessionLabel ||
+        (sess.claudeSessionId ? "New session (not saved yet)" : "");
     sess.tabEl.title =
-        (sess.claudeSessionId ? `${sess.claudeSessionId}\n` : "") +
-        projName +
+        (sessName ? `${sessName}\n` : "") +
+        `Project: ${projName}` +
         (sess.running ? " (running)" : "") +
-        (sess.account && sess.account !== "Default" ? ` - account: ${sess.account}` : "");
+        (sess.account && sess.account !== "Default" ? `\nAccount: ${sess.account}` : "") +
+        (sess.claudeSessionId ? `\n${sess.claudeSessionId}` : "");
     sess.tabEl.querySelector(".session-tab-dot").className =
         "session-tab-dot " + (sess.needsAttention ? "attention" : sess.running ? "running" : "idle");
 }
@@ -935,6 +948,7 @@ function startTerminal() {
     // Bind the sidebar-selected project to THIS tab at spawn time. Changing
     // the sidebar selection later never affects a running tab.
     sess.project = activeProject;
+    sess.sessionLabel = null; // fresh session - a reused tab must drop its old name
     updateSessionTabEl(sess);
 
     // Two Claude sessions in the same working directory can stomp each
@@ -990,6 +1004,9 @@ function confirmStopAndSave() {
     const project = document.getElementById("save-project-select").value || null;
 
     socket.emit("stop_terminal", { terminal_id: pendingStopTermId, project, summary, tags });
+    // Reflect a typed name on the tab (blank keeps the resumed session's name)
+    const stopping = termSessions[pendingStopTermId];
+    if (stopping && summary) stopping.sessionLabel = summary;
     pendingStopTermId = null;
     closeModal("save-modal");
 
@@ -1087,7 +1104,7 @@ function sendPromptToActiveSession(prompt) {
 // fresh tab - a running session is never stopped to make room. The session
 // resumes under the ACCOUNT that created it (its transcript lives in that
 // account's config dir), not the current selector.
-function resumeInTab(project, claudeSessionId, workingDirectory, banner, account) {
+function resumeInTab(project, claudeSessionId, workingDirectory, banner, account, sessionLabel) {
     // Already open? Never run the same Claude session in two tabs (two
     // processes writing one transcript) - jump to the existing tab instead.
     const existing = Object.values(termSessions).find(s => s.claudeSessionId === claudeSessionId);
@@ -1107,6 +1124,7 @@ function resumeInTab(project, claudeSessionId, workingDirectory, banner, account
     sess.project = project || null;
     sess.account = account || "Default";
     sess.claudeSessionId = claudeSessionId; // label the tab with it immediately
+    sess.sessionLabel = sessionLabel || null;
     updateSessionTabEl(sess);
 
     switchToTerminalPanel();
@@ -1123,6 +1141,7 @@ function resumeInTab(project, claudeSessionId, workingDirectory, banner, account
         working_directory: workingDirectory || "",
         permission_mode: currentPermissionMode,
         account: sess.account,
+        summary: sess.sessionLabel || "",
     });
 }
 
@@ -2292,7 +2311,8 @@ async function resumeSession() {
             session.claude_session_id,
             session.working_directory || "",
             "\x1b[90m  Resuming previous session...\x1b[0m\r\n",
-            session.account
+            session.account,
+            sessionDisplayLabel(session)
         );
     } catch (e) {
         console.error("Failed to resume session:", e);
@@ -3366,7 +3386,8 @@ async function quickResume(projectName) {
             latest.claude_session_id,
             latest.working_directory || "",
             `\x1b[90m  Quick-resuming last session: ${latest.summary || latest.id}...\x1b[0m\r\n`,
-            latest.account
+            latest.account,
+            sessionDisplayLabel(latest)
         );
     } catch (e) {
         console.error("Quick resume failed:", e);

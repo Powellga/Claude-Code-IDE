@@ -1042,6 +1042,7 @@ def api_active_terminals():
             "working_directory": record.get("working_directory"),
             "created": record.get("created"),
             "account": record.get("account", "Default"),
+            "summary": record.get("summary", ""),
             "attached": bool(info.get("sid")),
         })
     return jsonify(out)
@@ -1944,7 +1945,9 @@ def api_save_current_session():
 
     record = info["record"]
     record["project"] = project
-    record["summary"] = data.get("summary", "")
+    # A blank summary keeps the name a resumed session was carrying instead
+    # of wiping it (the save modal starts empty)
+    record["summary"] = data.get("summary", "") or record.get("summary", "")
     record["tags"] = data.get("tags", [])
     filepath = save_session(record, project)
     return jsonify({"status": "saved", "filepath": filepath})
@@ -2374,6 +2377,9 @@ def on_resume_session(data):
                               term_id=term_id, account=data.get("account"))
     if spawned:
         active_terminals[spawned]["record"]["project"] = project
+        # Carry the saved session's display name into the live record so tab
+        # tooltips (and reattach after a page refresh) can show it.
+        active_terminals[spawned]["record"]["summary"] = data.get("summary", "")
         emit("terminal_ready", {
             "status": "ok",
             "terminal_id": spawned,
