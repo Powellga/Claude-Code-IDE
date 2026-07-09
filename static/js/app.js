@@ -2370,6 +2370,19 @@ function loadMarkdownLibs() {
     return _mdLibsReady;
 }
 
+// Render markdown to sanitized HTML; degrade to readable plain text if the
+// marked / DOMPurify CDN libs are unavailable (offline, blocked, or slow).
+async function renderMarkdown(text) {
+    try {
+        await loadMarkdownLibs();
+        if (typeof DOMPurify !== "undefined" && typeof marked !== "undefined") {
+            return DOMPurify.sanitize(marked.parse(text));
+        }
+    } catch (_) { /* fall through to plain text */ }
+    return '<pre style="white-space:pre-wrap;word-break:break-word;">'
+        + escapeHtml(text) + '</pre>';
+}
+
 // Populate the Open Repo button from the project's git remotes
 async function loadGitRemotes() {
     const wrapper = document.getElementById("git-open-repo-wrapper");
@@ -2445,8 +2458,7 @@ async function toggleGitReadme() {
             content.innerHTML = `<div style="color:var(--text-muted);">${escapeHtml(data.error || "No README found")}</div>`;
             return;
         }
-        await loadMarkdownLibs();
-        content.innerHTML = DOMPurify.sanitize(marked.parse(data.content));
+        content.innerHTML = await renderMarkdown(data.content);
     } catch (e) {
         content.textContent = "Failed to render README: " + e;
     }
@@ -2686,8 +2698,7 @@ async function openGuide() {
             content.textContent = data.error || "Guide unavailable";
             return;
         }
-        await loadMarkdownLibs();
-        content.innerHTML = DOMPurify.sanitize(marked.parse(data.content));
+        content.innerHTML = await renderMarkdown(data.content);
         _guideLoaded = true;
     } catch (e) {
         content.textContent = "Failed to load guide: " + e;
