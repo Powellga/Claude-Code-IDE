@@ -3,8 +3,7 @@ A full-featured local web IDE that wraps Claude Code's CLI with real-time termin
 
 This is not a thin wrapper or a chat UI that calls an API. It manages real PTY processes, streams bidirectional I/O over WebSockets, renders raw terminal output through a virtual terminal emulator, and extends Claude Code's capabilities through a custom MCP tool server.
 
-<img alt="Claude Code IDE" src="claudecodeide.png" />
-
+<img width="2553" height="1408" alt="claude code IDE screenshot" src="https://github.com/user-attachments/assets/8b16d6f9-65b1-4d38-a068-4e844920fd0d" />
 
 
 ## What It Does
