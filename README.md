@@ -99,6 +99,9 @@ The server spawns Claude Code as a real pseudo-terminal process (`pywinpty` on W
 ### Virtual Terminal Rendering for Clean Transcripts
 Raw PTY output is full of ANSI escape sequences — cursor movements, screen clears, color codes, character-by-character streaming, spinner animations, and screen overwrites. Simple regex stripping produces garbled text with missing spaces and words running together. Instead, the entire raw output is replayed through **pyte**, a Python virtual terminal emulator that maintains a full screen buffer and scrollback history. The result is a clean, readable transcript that accurately represents what the user actually saw on screen.
 
+### Bounded Transcript Storage
+Claude Code's TUI redraws the screen constantly, so a long-running session can generate hundreds of MB of raw terminal output. Unbounded, that output ballooned the server's memory, produced 300+ MB session files, and made session listing and the transcript viewer unusably slow. Three caps keep it in check: the live in-memory buffer keeps a rolling 10 MB maximum, saved session files trim the stored transcript to the most recent 5 MB (with a visible trim marker), and the pyte transcript cleaner replays only the last 2 MB. None of this affects conversation context - resume reloads the full history from Claude Code's own transcript files; the caps only bound the IDE's copy of the visual terminal scrollback.
+
 ### Native Session Resume
 Rather than trying to inject previous conversation context into a new session (which breaks Claude Code's TUI and has timing issues), the IDE uses Claude Code's own session management. Each session is started with `--session-id <uuid>`, and resuming uses `--resume <uuid>`. Claude Code restores the full conversation context natively, including tool call history and system prompts that aren't visible in the transcript.
 

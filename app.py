@@ -162,6 +162,21 @@ def _spawn_terminal(sid, project_path=None, cmd=None, claude_session_id=None, te
         "raw_input": [],
     }
 
+    def record_output(data):
+        """Append PTY output to the session buffer, keeping only the most
+        recent MAX_RAW_CHARS. Claude Code's TUI redraws constantly, so an
+        unbounded buffer on a long-running session grows to hundreds of MB -
+        which then gets saved to disk and chokes session listing/viewing."""
+        MAX_RAW_CHARS = 10_000_000
+        buf = session_record["raw_output"]
+        buf.append(data)
+        session_record["raw_len"] = session_record.get("raw_len", 0) + len(data)
+        if session_record["raw_len"] > MAX_RAW_CHARS:
+            target = MAX_RAW_CHARS * 9 // 10
+            while buf and session_record["raw_len"] > target:
+                session_record["raw_len"] -= len(buf[0])
+                del buf[0]
+
     if sys.platform == "win32":
         try:
             from winpty import PtyProcess
@@ -175,7 +190,7 @@ def _spawn_terminal(sid, project_path=None, cmd=None, claude_session_id=None, te
                         try:
                             data = proc.read(4096)
                             if data:
-                                session_record["raw_output"].append(data)
+                                record_output(data)
                                 # Look up the CURRENT owner - reattach after a page
                                 # refresh rebinds the terminal to a new socket
                                 dest = _current_sid(term_id)
@@ -232,7 +247,7 @@ def _spawn_terminal(sid, project_path=None, cmd=None, claude_session_id=None, te
                     if r:
                         data = os.read(master_fd, 4096).decode("utf-8", errors="replace")
                         if data:
-                            session_record["raw_output"].append(data)
+                            record_output(data)
                             dest = _current_sid(term_id)
                             if dest:
                                 socketio.emit("terminal_output", {"terminal_id": term_id, "data": data}, to=dest)
@@ -274,7 +289,7 @@ def _spawn_terminal(sid, project_path=None, cmd=None, claude_session_id=None, te
             try:
                 for line in iter(proc.stdout.readline, b""):
                     data = line.decode("utf-8", errors="replace")
-                    session_record["raw_output"].append(data)
+                    record_output(data)
                     dest = _current_sid(term_id)
                     if dest:
                         socketio.emit("terminal_output", {"terminal_id": term_id, "data": data}, to=dest)
@@ -452,6 +467,15 @@ def save_session(record, project_name=None):
 
     filepath = session_dir / f"{record['id']}.json"
 
+    # Cap the stored transcript - list_sessions() json.loads every session
+    # file in the project, so one oversized record makes the whole sidebar
+    # (and the transcript viewer) unusably slow.
+    raw_transcript = "".join(record.get("raw_output", []))
+    MAX_SAVED_CHARS = 5_000_000
+    if len(raw_transcript) > MAX_SAVED_CHARS:
+        raw_transcript = ("[...earlier output trimmed at save...]\r\n"
+                          + raw_transcript[-MAX_SAVED_CHARS:])
+
     # Build a clean record for storage
     save_data = {
         "id": record["id"],
@@ -465,7 +489,7 @@ def save_session(record, project_name=None):
         "cols": record.get("cols"),
         "rows": record.get("rows"),
         "account": record.get("account", "Default"),
-        "raw_transcript": "".join(record.get("raw_output", [])),
+        "raw_transcript": raw_transcript,
     }
 
     with open(filepath, "w", encoding="utf-8") as f:
@@ -485,6 +509,13 @@ def _clean_transcript(raw_text, cols=None, rows=None):
     whitespace).
     """
     import pyte
+
+    # pyte is pure Python - feeding it tens of MB takes minutes and GBs of
+    # RAM, and the request never returns. Replay only the most recent output;
+    # older saved sessions (pre-cap) can far exceed this.
+    MAX_CLEAN_CHARS = 2_000_000
+    if len(raw_text) > MAX_CLEAN_CHARS:
+        raw_text = raw_text[-MAX_CLEAN_CHARS:]
 
     width = int(cols) if cols else 240
     height = int(rows) if rows else 50
