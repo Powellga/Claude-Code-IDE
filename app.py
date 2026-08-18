@@ -148,6 +148,12 @@ def _spawn_terminal(sid, project_path=None, cmd=None, claude_session_id=None, te
     cwd = project_path or str(Path.home())
     cmd = cmd or CLAUDE_CMD
 
+    # Make sure the project's CLAUDE.md carries the Project Context Log
+    # section before Claude Code starts (it reads CLAUDE.md at startup) -
+    # retrofits projects created before the section existed.
+    if project_path:
+        _ensure_claude_md_context(project_path)
+
     env = {**os.environ, "TERM": "xterm-256color", **_account_env(account)}
 
     # Session recording buffer
@@ -668,6 +674,49 @@ def create_project(name, display_name=None, description="", working_directory=""
     return meta
 
 
+# Standing instruction embedded in every project CLAUDE.md. Claude Code loads
+# CLAUDE.md at the start of each session, so this makes Claude itself keep a
+# running project summary current across sessions - the IDE only guarantees
+# the section exists (template below, plus a self-heal at session spawn).
+CLAUDE_MD_CONTEXT_HEADING = "## Project Context Log"
+
+CLAUDE_MD_CONTEXT_SECTION = f"""{CLAUDE_MD_CONTEXT_HEADING}
+
+Claude: this section is the project's persistent memory, loaded at the start
+of every session. Whenever durable project facts change during a session -
+decisions made, architecture added or changed, key files, external resources
+or IDs, constraints, blockers, milestones reached - update this section in
+that same session, without being asked. Keep it a compact rolling summary:
+fold in new facts, prune what is obsolete. Do not log routine activity.
+
+*No context recorded yet.*
+"""
+
+
+def _ensure_claude_md_context(working_directory):
+    """Guarantee the project's CLAUDE.md exists and carries the Project
+    Context Log section. Called at session spawn so projects created before
+    this feature (or with a hand-written CLAUDE.md) get the section appended
+    the next time they are opened. Never rewrites existing content."""
+    if not working_directory:
+        return
+    claude_md_path = Path(working_directory) / "CLAUDE.md"
+    try:
+        if not claude_md_path.exists():
+            if Path(working_directory).is_dir():
+                _create_default_claude_md(working_directory, Path(working_directory).name)
+            return
+        text = claude_md_path.read_text(encoding="utf-8")
+        # A hand-maintained equivalent counts - don't stack a second copy
+        if CLAUDE_MD_CONTEXT_HEADING in text or "## Maintaining This File" in text:
+            return
+        with open(claude_md_path, "a", encoding="utf-8") as f:
+            f.write("\n" + CLAUDE_MD_CONTEXT_SECTION.strip() + "\n")
+        print(f"[IDE] Added Project Context Log section: {claude_md_path}")
+    except Exception as e:
+        print(f"[IDE] Could not ensure CLAUDE.md context section: {e}")
+
+
 def _create_default_claude_md(working_directory, project_name, description=""):
     """Create a minimal CLAUDE.md with project context only."""
     claude_md_path = Path(working_directory) / "CLAUDE.md"
@@ -691,7 +740,8 @@ This file provides guidance to Claude Code when working with code in this reposi
 ## Working Directory
 
 `{wd_display}`
-"""
+
+{CLAUDE_MD_CONTEXT_SECTION}"""
 
     try:
         with open(claude_md_path, "w", encoding="utf-8") as f:

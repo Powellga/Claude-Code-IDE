@@ -138,3 +138,16 @@ Archiving moves the whole project folder between `projects/` and `archived_proje
 ## Project-Specific Instructions
 
 - **AutoSave** - Each time we complete updating code, ask if the user wants to push to GitHub. If yes, always update the README.md (create it if it does not exist).
+
+## Project Context Log
+
+Claude: this section is the project's persistent memory, loaded at the start
+of every session. Whenever durable project facts change during a session -
+decisions made, architecture added or changed, key files, external resources
+or IDs, constraints, blockers, milestones reached - update this section in
+that same session, without being asked. Keep it a compact rolling summary:
+fold in new facts, prune what is obsolete. Do not log routine activity.
+
+- **Transcript size caps (2026-08-17):** raw PTY output is bounded at three layers - rolling 10 MB live buffer (`record_output`), 5 MB stored `raw_transcript` at save, 2 MB fed to pyte in `_clean_transcript`. Added after a 386 MB session file drove the server to 8 GB RAM and hung the viewer. Resume context is unaffected (lives in Claude Code's own jsonl).
+- **CLAUDE.md Project Context Log (2026-08-17):** every project CLAUDE.md carries this section - included in the new-project template and self-healed at session spawn by `_ensure_claude_md_context()` (skips files already containing the heading or "## Maintaining This File"). A one-time retrofit added it to all 52 existing project workdirs. Claude maintains the content; the IDE only guarantees the section exists.
+- **Repo pushes to TWO GitHub accounts:** the `origin` remote has both push URLs (Powellga/Claude-Code-IDE and Temark-International/Claude-Code-IDE) - one `git push origin master` updates both.
