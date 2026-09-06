@@ -2209,9 +2209,61 @@ def api_list_local_sessions():
     return jsonify(result)
 
 
+def _claude_project_dirname(workdir):
+    """Folder name Claude Code uses under <config>/projects for a given cwd.
+
+    Claude Code munges the absolute cwd by replacing every non-alphanumeric
+    character with "-" (C:/Users/gregg -> C--Users-gregg) and only looks
+    for --resume transcripts under the folder for the CURRENT cwd.
+    """
+    return re.sub(r"[^A-Za-z0-9]", "-", os.path.normpath(str(workdir)))
+
+
+def _transcript_roots():
+    """(account, <config>/projects) for the default identity and every account."""
+    roots = [("Default", CLAUDE_PROJECTS_DIR)]
+    for acct in load_settings().get("accounts", []):
+        cfg = acct.get("config_dir")
+        if cfg:
+            roots.append((acct.get("name") or "Default", Path(cfg) / "projects"))
+    return roots
+
+
+def _find_transcript(session_id):
+    """Locate <session_id>.jsonl in any account's projects dir -> (path, account)."""
+    for account, root in _transcript_roots():
+        if not root.exists():
+            continue
+        for path in root.glob(f"*/{session_id}.jsonl"):
+            return path, account
+    return None, None
+
+
+def _place_transcript_for_workdir(src, workdir):
+    """Make `claude --resume` launched from workdir find the transcript at src.
+
+    Copies it into workdir's munged folder (same config root) unless it is
+    already there. The original is left untouched; the copy becomes the live
+    transcript once resumed from workdir. Returns the path resume will use.
+    """
+    dest_dir = src.parent.parent / _claude_project_dirname(workdir)
+    dest = dest_dir / src.name
+    if dest_dir.name == src.parent.name or dest.exists():
+        return dest
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dest)
+    print(f"[IDE] Copied transcript {src.name} -> {dest_dir.name}/ so it resumes from {workdir}")
+    return dest
+
+
 @app.route("/api/import-session", methods=["POST"])
 def api_import_session():
-    """Import an external Claude Code session as a new IDE project."""
+    """Import an external Claude Code session as a new IDE project.
+
+    Claude Code only resumes a session from the cwd it was recorded under, so
+    when the IDE project runs somewhere else the transcript is copied into
+    that directory's projects folder before the record is written.
+    """
     data = request.json
     session_id = data.get("session_id", "").strip()
     project_name = data.get("project_name", "").strip().replace(" ", "-").lower()
@@ -2231,6 +2283,12 @@ def api_import_session():
     if project_dir.exists():
         return jsonify({"error": f"Project '{project_name}' already exists"}), 409
 
+    # A record without a transcript can never be resumed - refuse up front
+    transcript, account = _find_transcript(session_id)
+    if not transcript:
+        return jsonify({"error": f"No Claude Code transcript found for session {session_id} "
+                                 "(searched ~/.claude/projects and every configured account)"}), 404
+
     # Determine working directory for the IDE project
     # For resume to work, we must track the ORIGINAL directory where the session ran
     if original_dir and os.path.isdir(original_dir):
@@ -2239,18 +2297,27 @@ def api_import_session():
         working_directory = str(WORKSPACES_BASE / project_name)
         os.makedirs(working_directory, exist_ok=True)
 
+    # Put the transcript where --resume will look from working_directory.
+    # Done before create_project so a copy failure leaves nothing half-made.
+    try:
+        _place_transcript_for_workdir(transcript, working_directory)
+    except OSError as e:
+        return jsonify({"error": f"Could not copy the transcript into the workspace: {e}"}), 500
+
     # Create the IDE project
     meta = create_project(project_name, display_name, "", working_directory)
 
-    # Create a session record so it appears in the project's session list
-    # working_directory must be the ORIGINAL dir so --resume finds the session
+    # Create a session record so it appears in the project's session list.
+    # working_directory is where resume runs; account is where the transcript
+    # lives (resume must use the same identity that recorded it).
     session_record = {
         "id": f"sess_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}",
         "project": project_name,
         "claude_session_id": session_id,
         "created": datetime.now().isoformat(),
         "ended": "",
-        "working_directory": original_dir or working_directory,
+        "working_directory": working_directory,
+        "account": account,
         "summary": data.get("summary", "Imported session"),
         "tags": ["imported"],
         "raw_transcript": "",

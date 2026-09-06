@@ -90,6 +90,20 @@ def git_push_backup():
     else:
         subprocess.run(["rsync", "-a", "--delete", f"{DATA_DIR}/", f"{dest_data}/"], check=True)
 
+    # GitHub rejects any push whose history contains a file over 100 MB,
+    # and one oversized file poisons every later push (the commit carrying
+    # it stays in the range). Keep oversized files out of the git mirror -
+    # they are still in data/ itself and in the local zip snapshots.
+    MAX_GIT_FILE_BYTES = 95 * 1024 * 1024
+    for fp in dest_data.rglob("*"):
+        try:
+            if fp.is_file() and fp.stat().st_size > MAX_GIT_FILE_BYTES:
+                log(f"  WARNING: excluding oversized file from git backup "
+                    f"({fp.stat().st_size / 1048576:.1f} MB): {fp.relative_to(dest_data)}")
+                fp.unlink()
+        except OSError:
+            pass
+
     # Git add, commit, push
     def git(*args):
         return subprocess.run(

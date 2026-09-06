@@ -108,6 +108,8 @@ Every project's CLAUDE.md carries a **Project Context Log** section - a standing
 ### Native Session Resume
 Rather than trying to inject previous conversation context into a new session (which breaks Claude Code's TUI and has timing issues), the IDE uses Claude Code's own session management. Each session is started with `--session-id <uuid>`, and resuming uses `--resume <uuid>`. Claude Code restores the full conversation context natively, including tool call history and system prompts that aren't visible in the transcript.
 
+Importing an external session into a new IDE project handles a subtlety of that mechanism: Claude Code only finds a `--resume` transcript recorded under the directory it is launched from. The import API locates the session's jsonl transcript (searching every configured account), copies it into the target working directory's transcript folder, and refuses the import up front if no transcript exists anywhere - so an imported session is always actually resumable.
+
 ### MCP Tool Integration
 The IDE works with a companion [Browser & File MCP Server](https://github.com/Powellga/Claude_Browser_MCP_Server) that exposes 25 tools — 18 for browser automation (Playwright) and 7 for file processing (Excel, Word, PowerPoint, CSV, images). The file upload button in the IDE drops files into the project's working directory and auto-prompts Claude to read them. Claude Code discovers and connects to the MCP server automatically via its config — the IDE doesn't need to broker the connection.
 
