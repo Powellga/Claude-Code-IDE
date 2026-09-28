@@ -15,3 +15,8 @@ Test_Proj_for_Dev/
 # server locations). NEVER commit. Each user copies .mcp.json.example to
 # .mcp.json and fills in their own values.
 .mcp.json
+
+# teams-chat-mcp runtime files - token_cache.json holds LIVE refresh tokens
+tools/teams-chat-mcp/token_cache.json
+tools/teams-chat-mcp/cursors.json
+tools/teams-chat-mcp/login_out.txt
