@@ -2093,6 +2093,30 @@ def _get_project_working_dir(project_name):
     return str(Path.home())
 
 
+# CLAUDE.md loads in full at the start of every session, so its size is a
+# standing cost. Anthropic's guidance is under ~200 lines; the IDE standard is
+# 250 lines AND ~5,000 tokens (chars / 4), because long lines count too.
+# Overridable in settings.json via claude_md_max_lines / claude_md_max_tokens.
+CLAUDE_MD_MAX_LINES = 250
+CLAUDE_MD_MAX_TOKENS = 5000
+
+
+def _claude_md_size(text):
+    settings = load_settings()
+    max_lines = int(settings.get("claude_md_max_lines") or CLAUDE_MD_MAX_LINES)
+    max_tokens = int(settings.get("claude_md_max_tokens") or CLAUDE_MD_MAX_TOKENS)
+    lines = len(text.splitlines())
+    tokens = len(text) // 4
+    if lines > max_lines or tokens > max_tokens:
+        level = "over"
+    elif lines > max_lines * 0.8 or tokens > max_tokens * 0.8:
+        level = "warn"
+    else:
+        level = "ok"
+    return {"lines": lines, "tokens": tokens, "level": level,
+            "max_lines": max_lines, "max_tokens": max_tokens}
+
+
 @app.route("/api/projects/<project>/claude-md", methods=["GET"])
 def api_get_claude_md(project):
     """Read the CLAUDE.md file for a project's working directory."""
@@ -2104,7 +2128,8 @@ def api_get_claude_md(project):
         with open(filepath, "r", encoding="utf-8") as f:
             content = f.read()
         exists = True
-    return jsonify({"content": content, "path": str(filepath), "exists": exists})
+    return jsonify({"content": content, "path": str(filepath), "exists": exists,
+                    "size": _claude_md_size(content)})
 
 
 @app.route("/api/projects/<project>/claude-md", methods=["PUT"])
@@ -2116,7 +2141,7 @@ def api_put_claude_md(project):
     content = data.get("content", "")
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(content)
-    return jsonify({"status": "saved", "path": str(filepath)})
+    return jsonify({"status": "saved", "path": str(filepath), "size": _claude_md_size(content)})
 
 
 # ── Search API ──

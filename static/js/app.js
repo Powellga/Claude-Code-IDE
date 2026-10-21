@@ -1603,8 +1603,9 @@ function initUI() {
     document.getElementById("btn-claudemd-reload").addEventListener("click", loadClaudeMd);
 
     // Track CLAUDE.md dirty state
-    document.getElementById("claudemd-editor").addEventListener("input", () => {
+    document.getElementById("claudemd-editor").addEventListener("input", (e) => {
         claudeMdDirty = true;
+        renderClaudeMdSize(claudeMdSizeOf(e.target.value));
     });
 
     // Tab switching
@@ -1971,6 +1972,9 @@ async function selectProject(name) {
 
     // Update navigate (live URL) button visibility
     updateNavigateButton(name);
+
+    // CLAUDE.md size badge on its tab, visible whichever tab is open
+    refreshClaudeMdSize();
 
     // Refresh file tree if visible
     if (fileTreeVisible) loadFileTree();
@@ -2472,10 +2476,53 @@ function showGitDiffView() {
 
 // ─── CLAUDE.md Editor ───────────────────────────────────────────────────
 
+// Limits come from the server (settings-overridable); kept so typing in the
+// editor can recompute the badge without a round trip.
+let claudeMdLimits = { max_lines: 250, max_tokens: 5000 };
+
+function claudeMdSizeOf(text) {
+    const lines = text ? text.split(/\r\n|\r|\n/).length - (/(\r\n|\r|\n)$/.test(text) ? 1 : 0) : 0;
+    const tokens = Math.floor(text.length / 4);
+    const { max_lines, max_tokens } = claudeMdLimits;
+    let level = "ok";
+    if (lines > max_lines || tokens > max_tokens) level = "over";
+    else if (lines > max_lines * 0.8 || tokens > max_tokens * 0.8) level = "warn";
+    return { lines, tokens, level, max_lines, max_tokens };
+}
+
+function renderClaudeMdSize(size, exists = true) {
+    const badge = document.getElementById("claudemd-size-badge");
+    if (!size || !exists) { badge.hidden = true; return; }
+    claudeMdLimits = { max_lines: size.max_lines, max_tokens: size.max_tokens };
+    badge.hidden = false;
+    badge.textContent = size.lines;
+    badge.className = "tab-badge" + (size.level === "ok" ? "" : " " + size.level);
+    const stats = `CLAUDE.md is ${size.lines} lines, about ${size.tokens.toLocaleString()} tokens, loaded into every session in this project. ` +
+        `Limit: ${size.max_lines} lines or ${size.max_tokens.toLocaleString()} tokens.`;
+    const advice = {
+        ok: "Within the limit.",
+        warn: "Getting close to the limit.",
+        over: "Over the limit: move feature detail and history into docs/ and leave a one-line pointer here.",
+    }[size.level];
+    badge.title = `${stats} ${advice}`;
+}
+
+async function refreshClaudeMdSize() {
+    if (!activeProject) { renderClaudeMdSize(null); return; }
+    try {
+        const resp = await fetch(`/api/projects/${encodeURIComponent(activeProject)}/claude-md`);
+        const data = await resp.json();
+        renderClaudeMdSize(data.size, data.exists);
+    } catch (e) {
+        renderClaudeMdSize(null);
+    }
+}
+
 async function loadClaudeMd() {
     if (!activeProject) {
         document.getElementById("claudemd-path").textContent = "No project selected";
         document.getElementById("claudemd-editor").value = "";
+        renderClaudeMdSize(null);
         return;
     }
 
@@ -2484,6 +2531,7 @@ async function loadClaudeMd() {
         const data = await resp.json();
         document.getElementById("claudemd-path").textContent = data.path || `${activeProject}/CLAUDE.md`;
         document.getElementById("claudemd-editor").value = data.content || "";
+        renderClaudeMdSize(data.size, data.exists);
         claudeMdDirty = false;
     } catch (e) {
         console.error("Failed to load CLAUDE.md:", e);
@@ -2503,6 +2551,8 @@ async function saveClaudeMd() {
         });
         if (resp.ok) {
             claudeMdDirty = false;
+            const saved = await resp.json();
+            renderClaudeMdSize(saved.size);
             // Brief visual feedback
             const btn = document.getElementById("btn-claudemd-save");
             const original = btn.textContent;

@@ -338,6 +338,18 @@ html, body {
     background: var(--bg-primary);
 }
 .tab-icon { font-size: 12px; }
+.tab-badge {
+    font-size: 10px;
+    line-height: 15px;
+    padding: 0 6px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
+.tab-badge[hidden] { display: none; }
+.tab-badge.warn { color: #1e1e1e; background: var(--warning); border-color: var(--warning); }
+.tab-badge.over { color: #ffffff; background: var(--danger); border-color: var(--danger); font-weight: 600; }
 .tab-status { font-size: 8px; }
 .tab-status.running { color: var(--success); }
 .tab-status.stopped { color: var(--text-muted); }
