@@ -1165,6 +1165,22 @@ html, body {
     color: var(--text-muted);
 }
 
+/* ─── Global CLAUDE.md editor ──────────────────────────────────────────── */
+
+.modal-content.global-claudemd-content {
+    width: min(1000px, 92vw);
+    height: 84vh;
+    display: flex;
+    flex-direction: column;
+}
+.global-claudemd-content .modal-header { display: flex; align-items: center; }
+.global-claudemd-bar { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--border); }
+#global-claudemd-editor {
+    flex: 1; background: var(--bg-primary); color: var(--text-primary); border: none; padding: 14px 16px;
+    font-family: var(--font-mono); font-size: var(--font-size-sm); line-height: 1.6; resize: none; outline: none; tab-size: 4;
+}
+.global-claudemd-note { font-size: 11px; color: var(--text-muted); padding: 6px 14px; border-top: 1px solid var(--border); }
+
 /* ─── Memory Panel ─────────────────────────────────────────────────────── */
 
 #memory-panel [hidden] { display: none !important; }

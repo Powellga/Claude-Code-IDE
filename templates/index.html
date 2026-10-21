@@ -20,7 +20,7 @@
     <!-- Socket.IO -->
     <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.7.4/dist/socket.io.min.js"></script>
 
-    <link rel="stylesheet" href="/static/css/style.css?v=20261021-1">
+    <link rel="stylesheet" href="/static/css/style.css?v=20261021-2">
 </head>
 <body>
     <!-- ─── Title Bar ──────────────────────────────────────────── -->
@@ -435,11 +435,40 @@
                     <div style="font-size:11px;color:var(--text-muted);margin:4px 0 6px;">Each account uses its own config directory (CLAUDE_CONFIG_DIR). Select it in the terminal status bar, start a session, and run /login once to authenticate. API key is optional (for key-based accounts).</div>
                     <div id="settings-accounts"></div>
                 </div>
+                <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border);">
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <label style="margin:0;">Global Instructions</label>
+                        <span class="tab-badge" id="global-claudemd-badge" hidden></span>
+                        <span style="flex:1"></span>
+                        <button id="btn-open-global-claudemd" class="toolbar-btn" title="View and edit ~/.claude/CLAUDE.md, the instructions every Claude Code session loads in every project">Open editor</button>
+                    </div>
+                    <div style="font-size:11px;color:var(--text-muted);margin:4px 0 0;">~/.claude/CLAUDE.md loads into every session in every project. Each save keeps a backup of the previous version.</div>
+                </div>
                 <button id="btn-save-settings" class="toolbar-btn primary" style="margin-top:12px;width:100%;" title="Save settings to server">Save Settings</button>
                 <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border);">
                     <button id="btn-restart-server" class="toolbar-btn danger" style="width:100%;" title="Kill the IDE server process">Kill Server</button>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- ─── Global CLAUDE.md Editor Modal ─────────────────────── -->
+    <div id="global-claudemd-modal" class="modal" style="display:none;">
+        <div class="modal-content global-claudemd-content">
+            <div class="modal-header">
+                <span>Global CLAUDE.md (all projects)</span>
+                <span class="tab-badge" id="global-claudemd-modal-badge" hidden style="margin-left:8px;"></span>
+                <span style="flex:1"></span>
+                <button class="modal-close" onclick="closeGlobalClaudeMd()" title="Close (unsaved edits ask first)">&times;</button>
+            </div>
+            <div class="global-claudemd-bar">
+                <span id="global-claudemd-path" class="toolbar-path" title="The global instructions file"></span>
+                <span style="flex:1"></span>
+                <button id="btn-global-claudemd-reload" class="toolbar-btn" title="Reload from disk, discarding unsaved edits">Reload</button>
+                <button id="btn-global-claudemd-save" class="toolbar-btn primary" title="Save (the previous version is backed up first)">Save</button>
+            </div>
+            <textarea id="global-claudemd-editor" spellcheck="false" placeholder="No global CLAUDE.md yet. Anything written here loads into every Claude Code session."></textarea>
+            <div id="global-claudemd-note" class="global-claudemd-note"></div>
         </div>
     </div>
 
@@ -534,6 +563,6 @@
     <div id="context-menu" style="display:none;position:fixed;z-index:2000;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,0.5);min-width:160px;padding:4px 0;">
     </div>
 
-    <script src="/static/js/app.js?v=20261021-1"></script>
+    <script src="/static/js/app.js?v=20261021-2"></script>
 </body>
 </html>

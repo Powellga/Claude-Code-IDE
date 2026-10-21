@@ -2144,6 +2144,52 @@ def api_put_claude_md(project):
     return jsonify({"status": "saved", "path": str(filepath), "size": _claude_md_size(content)})
 
 
+# ── Global CLAUDE.md API ──
+#
+# ~/.claude/CLAUDE.md loads into every Claude Code session in every project,
+# so a bad save hurts everywhere: each save first copies the current file into
+# data/global_claude_md_backups/ (newest 30 kept), and writes are guarded by
+# the mtime the editor loaded, because sessions also edit this file.
+
+GLOBAL_CLAUDE_MD = Path.home() / ".claude" / "CLAUDE.md"
+GLOBAL_CLAUDE_MD_BACKUPS = DATA_DIR / "global_claude_md_backups"
+GLOBAL_CLAUDE_MD_KEEP = 30
+
+
+@app.route("/api/global-claude-md", methods=["GET"])
+def api_get_global_claude_md():
+    exists = GLOBAL_CLAUDE_MD.exists()
+    content = GLOBAL_CLAUDE_MD.read_text(encoding="utf-8") if exists else ""
+    backups = sorted(GLOBAL_CLAUDE_MD_BACKUPS.glob("CLAUDE_*.md")) if GLOBAL_CLAUDE_MD_BACKUPS.is_dir() else []
+    return jsonify({"content": content, "exists": exists, "path": str(GLOBAL_CLAUDE_MD),
+                    "mtime": GLOBAL_CLAUDE_MD.stat().st_mtime if exists else None,
+                    "size": _claude_md_size(content), "backups": len(backups),
+                    "backup_dir": str(GLOBAL_CLAUDE_MD_BACKUPS)})
+
+
+@app.route("/api/global-claude-md", methods=["PUT"])
+def api_put_global_claude_md():
+    data = request.json or {}
+    content = data.get("content", "")
+    known = data.get("known_mtime")
+    if GLOBAL_CLAUDE_MD.exists():
+        current = GLOBAL_CLAUDE_MD.read_text(encoding="utf-8")
+        if known is not None and abs(GLOBAL_CLAUDE_MD.stat().st_mtime - float(known)) > 0.001:
+            return jsonify({"error": "changed on disk", "content": current,
+                            "mtime": GLOBAL_CLAUDE_MD.stat().st_mtime}), 409
+        if current != content:
+            GLOBAL_CLAUDE_MD_BACKUPS.mkdir(parents=True, exist_ok=True)
+            stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            (GLOBAL_CLAUDE_MD_BACKUPS / f"CLAUDE_{stamp}.md").write_text(current, encoding="utf-8")
+            for old in sorted(GLOBAL_CLAUDE_MD_BACKUPS.glob("CLAUDE_*.md"))[:-GLOBAL_CLAUDE_MD_KEEP]:
+                old.unlink()
+    else:
+        GLOBAL_CLAUDE_MD.parent.mkdir(parents=True, exist_ok=True)
+    GLOBAL_CLAUDE_MD.write_text(content, encoding="utf-8")
+    return jsonify({"status": "saved", "mtime": GLOBAL_CLAUDE_MD.stat().st_mtime,
+                    "size": _claude_md_size(content)})
+
+
 # ── Memory API ──
 #
 # Claude Code's auto memory lives outside the project, in

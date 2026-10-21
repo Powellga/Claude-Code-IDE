@@ -23,6 +23,8 @@ Claude Code is only as good as the context it starts each session with. The IDE 
 4. **Dreaming: a memory review from real sessions.** `tools/dream_experiment.py` reads a project's recent Claude Code transcripts alongside its memory files, finds recurring patterns, and writes a report of proposed memory changes, each backed by quotes from the sessions. A person accepts or rejects every proposal. Details below.
 
 5. **A Memory tab for Claude Code's saved memories.** Claude Code also keeps per-project memories (one fact per file plus a `MEMORY.md` index) in a hidden folder under `~/.claude/projects/`; across 47 projects there were 163 of them, all invisible in the IDE. The 🧠 Memory tab, next to CLAUDE.md, lists the current project's memories oldest-changed first (the likeliest to be stale), with each one's description, type, last change and last review. It flags index problems automatically: memories missing from the index, index entries pointing at deleted files, and an index longer than Claude Code's load limit (only the first 200 lines or 25 KB are ever read). **Review all** walks them one at a time: **Keep** marks a memory reviewed and moves on, **Edit** changes it in place (guarded against a running session rewriting the same file), and **Retire** moves it to an archive and removes its index line, so sessions stop seeing it; any retired memory can be restored from the list. Review marks are stored in the IDE's own data, never in the memory files.
+6. **Global instructions in Settings.** `~/.claude/CLAUDE.md` is the one memory file that loads into every Claude Code session in every project (no auto-memory spans projects; lessons that apply everywhere get promoted here). Settings now has a **Global Instructions** row with a size badge and an **Open editor** button: a full-size editor with Reload, Save and Ctrl+S, guarded against overwriting a concurrent edit by a running session. Because a bad save would affect every project, each save first copies the previous version into `data/global_claude_md_backups/` (the newest 30 are kept).
+
 ### How dreaming works
 
 Plain Python does the mechanics; Claude only reads and proposes.
@@ -74,6 +76,7 @@ The original plan also covered versioned memory history, write-conflict checks, 
 - **Session Export** — Download transcripts as `.md` or `.txt` files
 - **CLAUDE.md Editor** — Read, edit, and save CLAUDE.md project instructions directly in the IDE
 - **CLAUDE.md Size Badge** - The CLAUDE.md tab shows the project's line count, turning amber near and red over the lean-memory limit (250 lines or about 5,000 tokens)
+- **Global Instructions Editor** - Settings opens `~/.claude/CLAUDE.md` (loaded by every session in every project) in a full-size editor with a size badge, a concurrent-edit guard, and an automatic backup of the previous version on every save
 - **Memory Tab** - Lists Claude Code's saved memories for the current project, flags index problems, and walks them one at a time to keep, edit, or retire (archived, restorable)
 - **Dream Review** - A report-only memory review that reads a project's recent session transcripts and proposes evidence-backed memory changes (see "Context Engineering and Dreaming" above)
 - **File Upload** — Upload files (Excel, Word, images, etc.) to the project directory for Claude to read via MCP tools

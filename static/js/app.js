@@ -1551,6 +1551,21 @@ function initUI() {
     // Settings
     document.getElementById("btn-settings").addEventListener("click", openSettings);
     document.getElementById("btn-save-settings").addEventListener("click", saveSettings);
+
+    // Global CLAUDE.md editor (opened from Settings)
+    document.getElementById("btn-open-global-claudemd").addEventListener("click", openGlobalClaudeMd);
+    document.getElementById("btn-global-claudemd-reload").addEventListener("click", () => {
+        if (globalMd.dirty && !confirm("Discard your unsaved edits and reload from disk?")) return;
+        loadGlobalClaudeMd();
+    });
+    document.getElementById("btn-global-claudemd-save").addEventListener("click", () => saveGlobalClaudeMd(false));
+    document.getElementById("global-claudemd-editor").addEventListener("input", (e) => {
+        globalMd.dirty = true;
+        renderGlobalMdSize(claudeMdSizeOf(e.target.value));
+    });
+    document.getElementById("global-claudemd-editor").addEventListener("keydown", (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); saveGlobalClaudeMd(false); }
+    });
     document.getElementById("btn-restart-server").addEventListener("click", restartServer);
 
     // Upload
@@ -2812,7 +2827,81 @@ async function restoreMemory(archivedFile) {
 
 // ─── Settings ───────────────────────────────────────────────────────────
 
+// ─── Global CLAUDE.md (Settings) ────────────────────────────────────────
+// ~/.claude/CLAUDE.md loads into every session in every project. The server
+// backs up the previous version on each save; the editor carries the mtime it
+// loaded so a session's concurrent edit is never silently overwritten.
+
+const globalMd = { mtime: null, dirty: false };
+
+function applySizeBadge(badge, size, what) {
+    if (!size) { badge.hidden = true; return; }
+    badge.hidden = false;
+    badge.textContent = size.lines;
+    badge.className = "tab-badge" + (size.level === "ok" ? "" : " " + size.level);
+    badge.title = `${what} is ${size.lines} lines, about ${size.tokens.toLocaleString()} tokens. ` +
+        `Limit: ${size.max_lines} lines or ${size.max_tokens.toLocaleString()} tokens.` +
+        (size.level === "over" ? " Over the limit: move detail into separate files and keep only rules here." : "");
+}
+
+function renderGlobalMdSize(size) {
+    applySizeBadge(document.getElementById("global-claudemd-badge"), size, "The global CLAUDE.md");
+    applySizeBadge(document.getElementById("global-claudemd-modal-badge"), size, "The global CLAUDE.md");
+}
+
+async function refreshGlobalMdBadge() {
+    try {
+        const data = await (await fetch("/api/global-claude-md")).json();
+        renderGlobalMdSize(data.exists ? data.size : null);
+    } catch (e) { renderGlobalMdSize(null); }
+}
+
+async function loadGlobalClaudeMd() {
+    const data = await (await fetch("/api/global-claude-md")).json();
+    document.getElementById("global-claudemd-path").textContent = data.path;
+    document.getElementById("global-claudemd-editor").value = data.content;
+    document.getElementById("global-claudemd-note").textContent =
+        `Loads into every Claude Code session. ${data.backups} earlier version${data.backups === 1 ? "" : "s"} kept in ${data.backup_dir}. Ctrl+S saves.`;
+    globalMd.mtime = data.mtime;
+    globalMd.dirty = false;
+    renderGlobalMdSize(data.exists ? data.size : null);
+}
+
+async function openGlobalClaudeMd() {
+    openModal("global-claudemd-modal");
+    await loadGlobalClaudeMd();
+    document.getElementById("global-claudemd-editor").focus();
+}
+
+async function saveGlobalClaudeMd(force = false) {
+    const body = { content: document.getElementById("global-claudemd-editor").value };
+    if (!force && globalMd.mtime !== null) body.known_mtime = globalMd.mtime;
+    const resp = await fetch("/api/global-claude-md", {
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (resp.status === 409) {
+        if (confirm("The global CLAUDE.md changed on disk while you were editing it, probably updated by a Claude session.\n\nOK = save your version over it (the other version is kept as a backup).\nCancel = discard your edits and reload the current version.")) {
+            return saveGlobalClaudeMd(true);
+        }
+        await loadGlobalClaudeMd();
+        return;
+    }
+    if (!resp.ok) { showToast("Could not save the global CLAUDE.md."); return; }
+    const out = await resp.json();
+    globalMd.mtime = out.mtime;
+    globalMd.dirty = false;
+    renderGlobalMdSize(out.size);
+    showToast("Global CLAUDE.md saved. New sessions in every project will use it.");
+    await loadGlobalClaudeMd();
+}
+
+function closeGlobalClaudeMd() {
+    if (globalMd.dirty && !confirm("Discard your unsaved edits to the global CLAUDE.md?")) return;
+    globalMd.dirty = false;
+    closeModal("global-claudemd-modal");
+}
+
 async function openSettings() {
+    refreshGlobalMdBadge();
     // Load current settings
     try {
         const [settingsResp, projectsResp] = await Promise.all([
