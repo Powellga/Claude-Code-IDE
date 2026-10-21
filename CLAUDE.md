@@ -42,6 +42,14 @@ python backup.py --restore 0    # restore most recent
 
 There are no automated tests or linters configured. The `test_*.py` files are one-off scripts for specific issues (admin inheritance, child processes), not a test suite.
 
+## Development Workflow
+
+- Before each significant build, create a git tag `restore-point-<name>` and push it (it reaches both repos).
+- Test on a second server instance (`CLAUDE_IDE_PORT=5051`, optionally a lower `CLAUDE_IDE_ORPHAN_GRACE`) and check the UI with claude-in-chrome. Never restart the live server on 5050 to test: the Claude session doing the work runs inside it. Both servers share `data/`, so test write actions on throwaway data.
+- Bump the `?v=` cache-busters on `app.js` and `style.css` in index.html for every frontend change.
+- **Decided, do not re-propose:** the Compare tab (removed), Telegram notifications (rejected; alerts stay in the browser and IDE), a "changes this session" review panel (rejected; git and restore points cover it), and auto-opening a browser from start-ide.bat (removed on purpose).
+- Ideas never scheduled, open only if Gregg asks: @-file and slash-command input helpers, an auth layer for remote or phone access, incremental JSONL parsing to speed up the usage refresh.
+
 ## Architecture
 
 Single-page app: Flask backend serves one HTML page. Browser connects via Socket.IO WebSocket for terminal I/O, plus REST API for everything else.
