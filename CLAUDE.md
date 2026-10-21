@@ -46,7 +46,7 @@ There are no automated tests or linters configured. The `test_*.py` files are on
 
 - Before each significant build, create a git tag `restore-point-<name>` and push it (it reaches both repos).
 - Test on a second server instance (`CLAUDE_IDE_PORT=5051`, optionally a lower `CLAUDE_IDE_ORPHAN_GRACE`) and check the UI with claude-in-chrome. Never restart the live server on 5050 to test: the Claude session doing the work runs inside it. Both servers share `data/`, so test write actions on throwaway data.
-- Bump the `?v=` cache-busters on `app.js` and `style.css` in index.html for every frontend change.
+- Bump the `?v=` cache-busters on `app.js` and `style.css` in index.html for every frontend change. Flask now reloads index.html on change (`TEMPLATES_AUTO_RELOAD`, added 2026-10-21) but a server started before that setting still caches it, so wire new elements with `getElementById(...)?.` (2026-10-21: new JS against a cached old index.html threw on a missing button during init, which stopped the sidebar from loading).
 - **Decided, do not re-propose:** the Compare tab (removed), Telegram notifications (rejected; alerts stay in the browser and IDE), a "changes this session" review panel (rejected; git and restore points cover it), and auto-opening a browser from start-ide.bat (removed on purpose).
 - Ideas never scheduled, open only if Gregg asks: @-file and slash-command input helpers, an auth layer for remote or phone access, incremental JSONL parsing to speed up the usage refresh.
 

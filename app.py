@@ -87,6 +87,10 @@ else:
 # ─── Flask App ──────────────────────────────────────────────────────────────
 
 app = Flask(__name__)
+# Re-read templates/index.html on change. Without this Flask caches the template
+# until restart while app.js is served fresh from disk, so a frontend change that
+# adds elements can leave the live page running new JS against old HTML.
+app.config["TEMPLATES_AUTO_RELOAD"] = True
 app.config["SECRET_KEY"] = os.getenv("CLAUDE_IDE_SECRET", "claude-code-ide-dev-key")
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 

@@ -242,7 +242,7 @@ const TERMINAL_THEME = {
 };
 
 function initSessionTabs() {
-    document.getElementById("btn-new-session-tab").addEventListener("click", () => newSessionTab());
+    document.getElementById("btn-new-session-tab")?.addEventListener("click", () => newSessionTab());
     // The initial tab is created by bootstrapSessionTabs() on first socket
     // connect, after checking the server for live sessions to reattach.
 }
@@ -643,23 +643,23 @@ function editorProject(sess) {
 }
 
 function initEditorPane() {
-    document.getElementById("editor-toggle").addEventListener("click", () => {
+    document.getElementById("editor-toggle")?.addEventListener("click", () => {
         const sess = activeSess();
         if (!sess) return;
         editorState(sess).open = true;
         applyEditorPane(sess);
     });
-    document.getElementById("btn-editor-close").addEventListener("click", () => {
+    document.getElementById("btn-editor-close")?.addEventListener("click", () => {
         const sess = activeSess();
         if (!sess) return;
         editorState(sess).open = false;
         applyEditorPane(sess);
     });
-    document.getElementById("btn-editor-refresh").addEventListener("click", () => {
+    document.getElementById("btn-editor-refresh")?.addEventListener("click", () => {
         _editorTreeProject = undefined;
         loadEditorTree(activeSess());
     });
-    document.getElementById("btn-editor-tree").addEventListener("click", () => {
+    document.getElementById("btn-editor-tree")?.addEventListener("click", () => {
         const tree = document.getElementById("editor-tree");
         const hidden = tree.style.display === "none";
         tree.style.display = hidden ? "" : "none";
@@ -1515,12 +1515,12 @@ async function checkNotifyHook() {
 
 function initUI() {
     // Toolbar buttons
-    document.getElementById("btn-start").addEventListener("click", startTerminal);
-    document.getElementById("btn-stop").addEventListener("click", stopTerminal);
-    document.getElementById("btn-discard").addEventListener("click", discardTerminal);
-    document.getElementById("btn-resume").addEventListener("click", resumeSession);
-    document.getElementById("btn-copy-uuid").addEventListener("click", copySessionUuid);
-    document.getElementById("btn-confirm-save").addEventListener("click", confirmStopAndSave);
+    document.getElementById("btn-start")?.addEventListener("click", startTerminal);
+    document.getElementById("btn-stop")?.addEventListener("click", stopTerminal);
+    document.getElementById("btn-discard")?.addEventListener("click", discardTerminal);
+    document.getElementById("btn-resume")?.addEventListener("click", resumeSession);
+    document.getElementById("btn-copy-uuid")?.addEventListener("click", copySessionUuid);
+    document.getElementById("btn-confirm-save")?.addEventListener("click", confirmStopAndSave);
 
     // Permission mode dropdown
     initPermissionMode();
@@ -1529,18 +1529,18 @@ function initUI() {
     initEditorPane();
 
     // Usage dashboard
-    document.getElementById("btn-usage-refresh").addEventListener("click", loadUsage);
+    document.getElementById("btn-usage-refresh")?.addEventListener("click", loadUsage);
 
     // Anthropic account selector + settings editor
     initAccountSelector();
-    document.getElementById("btn-add-account").addEventListener("click", () => addAccountRow());
+    document.getElementById("btn-add-account")?.addEventListener("click", () => addAccountRow());
 
     // In-app guide (renders the IDE's own README)
-    document.getElementById("btn-guide").addEventListener("click", openGuide);
+    document.getElementById("btn-guide")?.addEventListener("click", openGuide);
 
     // Git tab extras: open repo on GitHub + README viewer
-    document.getElementById("btn-git-open-repo").addEventListener("click", openRepoClicked);
-    document.getElementById("btn-git-readme").addEventListener("click", toggleGitReadme);
+    document.getElementById("btn-git-open-repo")?.addEventListener("click", openRepoClicked);
+    document.getElementById("btn-git-readme")?.addEventListener("click", toggleGitReadme);
     document.addEventListener("click", (e) => {
         const wrap = document.getElementById("git-open-repo-wrapper");
         if (wrap && !wrap.contains(e.target)) {
@@ -1549,40 +1549,40 @@ function initUI() {
     });
 
     // Settings
-    document.getElementById("btn-settings").addEventListener("click", openSettings);
-    document.getElementById("btn-save-settings").addEventListener("click", saveSettings);
+    document.getElementById("btn-settings")?.addEventListener("click", openSettings);
+    document.getElementById("btn-save-settings")?.addEventListener("click", saveSettings);
 
     // Global CLAUDE.md editor (opened from Settings)
-    document.getElementById("btn-open-global-claudemd").addEventListener("click", openGlobalClaudeMd);
-    document.getElementById("btn-global-claudemd-reload").addEventListener("click", () => {
+    document.getElementById("btn-open-global-claudemd")?.addEventListener("click", openGlobalClaudeMd);
+    document.getElementById("btn-global-claudemd-reload")?.addEventListener("click", () => {
         if (globalMd.dirty && !confirm("Discard your unsaved edits and reload from disk?")) return;
         loadGlobalClaudeMd();
     });
-    document.getElementById("btn-global-claudemd-save").addEventListener("click", () => saveGlobalClaudeMd(false));
-    document.getElementById("global-claudemd-editor").addEventListener("input", (e) => {
+    document.getElementById("btn-global-claudemd-save")?.addEventListener("click", () => saveGlobalClaudeMd(false));
+    document.getElementById("global-claudemd-editor")?.addEventListener("input", (e) => {
         globalMd.dirty = true;
         renderGlobalMdSize(claudeMdSizeOf(e.target.value));
     });
-    document.getElementById("global-claudemd-editor").addEventListener("keydown", (e) => {
+    document.getElementById("global-claudemd-editor")?.addEventListener("keydown", (e) => {
         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); saveGlobalClaudeMd(false); }
     });
-    document.getElementById("btn-restart-server").addEventListener("click", restartServer);
+    document.getElementById("btn-restart-server")?.addEventListener("click", restartServer);
 
     // Upload
-    document.getElementById("btn-upload").addEventListener("click", () => {
+    document.getElementById("btn-upload")?.addEventListener("click", () => {
         document.getElementById("file-upload-input").click();
     });
-    document.getElementById("file-upload-input").addEventListener("change", uploadFile);
+    document.getElementById("file-upload-input")?.addEventListener("change", uploadFile);
 
     // Screenshot
-    document.getElementById("btn-screenshot").addEventListener("click", takeScreenshot);
+    document.getElementById("btn-screenshot")?.addEventListener("click", takeScreenshot);
 
     // Import external session
-    document.getElementById("btn-import-session").addEventListener("click", openImportSessionModal);
-    document.getElementById("btn-confirm-import-session").addEventListener("click", confirmImportSession);
+    document.getElementById("btn-import-session")?.addEventListener("click", openImportSessionModal);
+    document.getElementById("btn-confirm-import-session")?.addEventListener("click", confirmImportSession);
 
     // Import conversation
-    document.getElementById("btn-import").addEventListener("click", () => {
+    document.getElementById("btn-import")?.addEventListener("click", () => {
         if (!activeProject) {
             alert("Select a project first.");
             return;
@@ -1592,12 +1592,12 @@ function initUI() {
         document.getElementById("import-modal").style.display = "flex";
         document.getElementById("import-text").focus();
     });
-    document.getElementById("btn-confirm-import").addEventListener("click", importConversation);
+    document.getElementById("btn-confirm-import")?.addEventListener("click", importConversation);
 
     // File tree
-    document.getElementById("btn-toggle-filetree").addEventListener("click", toggleFileTree);
-    document.getElementById("btn-refresh-filetree").addEventListener("click", loadFileTree);
-    document.getElementById("btn-open-workdir").addEventListener("click", () => {
+    document.getElementById("btn-toggle-filetree")?.addEventListener("click", toggleFileTree);
+    document.getElementById("btn-refresh-filetree")?.addEventListener("click", loadFileTree);
+    document.getElementById("btn-open-workdir")?.addEventListener("click", () => {
         if (!activeProject) { console.warn("open-workdir: no active project"); return; }
         console.log("open-workdir: requesting for", activeProject);
         fetch(`/api/projects/${activeProject}/open-workdir`, { method: "POST" })
@@ -1607,32 +1607,32 @@ function initUI() {
     });
 
     // Git diff
-    document.getElementById("btn-gitdiff-refresh").addEventListener("click", loadGitStatus);
+    document.getElementById("btn-gitdiff-refresh")?.addEventListener("click", loadGitStatus);
 
     // Export buttons
-    document.getElementById("btn-export-md").addEventListener("click", () => exportSession("md"));
-    document.getElementById("btn-export-txt").addEventListener("click", () => exportSession("txt"));
+    document.getElementById("btn-export-md")?.addEventListener("click", () => exportSession("md"));
+    document.getElementById("btn-export-txt")?.addEventListener("click", () => exportSession("txt"));
 
     // Memory tab buttons
-    document.getElementById("btn-memory-refresh").addEventListener("click", loadMemoryList);
-    document.getElementById("btn-memory-scope-project").addEventListener("click", () => setMemoryScope("project"));
-    document.getElementById("btn-memory-scope-home").addEventListener("click", () => setMemoryScope("home"));
-    document.getElementById("btn-memory-review-all").addEventListener("click", () => openMemoryReview(0));
-    document.getElementById("btn-memory-back").addEventListener("click", loadMemoryList);
-    document.getElementById("btn-memory-prev").addEventListener("click", () => { memoryState.pos -= 1; showMemoryReview(); });
-    document.getElementById("btn-memory-next").addEventListener("click", () => { memoryState.pos += 1; showMemoryReview(); });
-    document.getElementById("btn-memory-keep").addEventListener("click", memoryKeep);
-    document.getElementById("btn-memory-edit").addEventListener("click", () => setMemoryEditing(true));
-    document.getElementById("btn-memory-cancel").addEventListener("click", showMemoryReview);
-    document.getElementById("btn-memory-save").addEventListener("click", () => memorySave(false));
-    document.getElementById("btn-memory-retire").addEventListener("click", memoryRetire);
+    document.getElementById("btn-memory-refresh")?.addEventListener("click", loadMemoryList);
+    document.getElementById("btn-memory-scope-project")?.addEventListener("click", () => setMemoryScope("project"));
+    document.getElementById("btn-memory-scope-home")?.addEventListener("click", () => setMemoryScope("home"));
+    document.getElementById("btn-memory-review-all")?.addEventListener("click", () => openMemoryReview(0));
+    document.getElementById("btn-memory-back")?.addEventListener("click", loadMemoryList);
+    document.getElementById("btn-memory-prev")?.addEventListener("click", () => { memoryState.pos -= 1; showMemoryReview(); });
+    document.getElementById("btn-memory-next")?.addEventListener("click", () => { memoryState.pos += 1; showMemoryReview(); });
+    document.getElementById("btn-memory-keep")?.addEventListener("click", memoryKeep);
+    document.getElementById("btn-memory-edit")?.addEventListener("click", () => setMemoryEditing(true));
+    document.getElementById("btn-memory-cancel")?.addEventListener("click", showMemoryReview);
+    document.getElementById("btn-memory-save")?.addEventListener("click", () => memorySave(false));
+    document.getElementById("btn-memory-retire")?.addEventListener("click", memoryRetire);
 
     // CLAUDE.md buttons
-    document.getElementById("btn-claudemd-save").addEventListener("click", saveClaudeMd);
-    document.getElementById("btn-claudemd-reload").addEventListener("click", loadClaudeMd);
+    document.getElementById("btn-claudemd-save")?.addEventListener("click", saveClaudeMd);
+    document.getElementById("btn-claudemd-reload")?.addEventListener("click", loadClaudeMd);
 
     // Track CLAUDE.md dirty state
-    document.getElementById("claudemd-editor").addEventListener("input", (e) => {
+    document.getElementById("claudemd-editor")?.addEventListener("input", (e) => {
         claudeMdDirty = true;
         renderClaudeMdSize(claudeMdSizeOf(e.target.value));
     });
@@ -1683,13 +1683,13 @@ function initUI() {
     });
 
     // Navigate (live URL) button
-    document.getElementById("btn-navigate").addEventListener("click", (e) => {
+    document.getElementById("btn-navigate")?.addEventListener("click", (e) => {
         e.stopPropagation();
         toggleNavigateMenu();
     });
 
     // URLs modal: Add URL row
-    document.getElementById("btn-add-url").addEventListener("click", () => {
+    document.getElementById("btn-add-url")?.addEventListener("click", () => {
         const list = document.getElementById("urls-list");
         // If currently empty placeholder, clear it first
         if (!list.querySelector(".url-row")) list.innerHTML = "";
@@ -1708,7 +1708,7 @@ function initUI() {
     });
 
     // URLs modal: Save
-    document.getElementById("btn-save-urls").addEventListener("click", saveUrlsModal);
+    document.getElementById("btn-save-urls")?.addEventListener("click", saveUrlsModal);
 
     // Close navigate menu on outside click
     document.addEventListener("click", (e) => {
@@ -1719,7 +1719,7 @@ function initUI() {
     });
 
     // Work / personal filter - cycles All, Work only, Personal only
-    document.getElementById("btn-work-filter").addEventListener("click", () => {
+    document.getElementById("btn-work-filter")?.addEventListener("click", () => {
         const order = ["all", "work", "personal"];
         projectFilterMode = order[(order.indexOf(projectFilterMode) + 1) % order.length];
         updateWorkFilterButton();
@@ -1751,10 +1751,10 @@ function initUI() {
     });
 
     // Archived projects
-    document.getElementById("btn-archived").addEventListener("click", openArchivedModal);
+    document.getElementById("btn-archived")?.addEventListener("click", openArchivedModal);
 
     // New project
-    document.getElementById("btn-new-project").addEventListener("click", () => {
+    document.getElementById("btn-new-project")?.addEventListener("click", () => {
         document.getElementById("new-project-name").value = "";
         document.getElementById("new-project-desc").value = "";
         document.getElementById("new-project-workdir").value = "";
@@ -1763,7 +1763,7 @@ function initUI() {
     });
 
     // Auto-fill working directory as user types project name
-    document.getElementById("new-project-name").addEventListener("input", async () => {
+    document.getElementById("new-project-name")?.addEventListener("input", async () => {
         const name = document.getElementById("new-project-name").value.trim().replace(/\s+/g, "-").toLowerCase();
         const workdirInput = document.getElementById("new-project-workdir");
         if (name && !workdirInput.dataset.manual) {
@@ -1777,10 +1777,10 @@ function initUI() {
     });
 
     // If user manually edits the workdir, stop auto-filling
-    document.getElementById("new-project-workdir").addEventListener("input", () => {
+    document.getElementById("new-project-workdir")?.addEventListener("input", () => {
         document.getElementById("new-project-workdir").dataset.manual = "true";
     });
-    document.getElementById("btn-new-session").addEventListener("click", () => {
+    document.getElementById("btn-new-session")?.addEventListener("click", () => {
         // Switch to the terminal panel and start in the active tab; if that
         // tab already has a running session, open a fresh tab for this one.
         switchToTerminalPanel();
@@ -1790,14 +1790,14 @@ function initUI() {
         }
         startTerminal();
     });
-    document.getElementById("btn-create-project").addEventListener("click", createProject);
+    document.getElementById("btn-create-project")?.addEventListener("click", createProject);
 
     // Search
-    document.getElementById("btn-search").addEventListener("click", () => {
+    document.getElementById("btn-search")?.addEventListener("click", () => {
         openModal("search-modal");
         document.getElementById("search-input").focus();
     });
-    document.getElementById("search-input").addEventListener("input", debounce(performSearch, 300));
+    document.getElementById("search-input")?.addEventListener("input", debounce(performSearch, 300));
 
     // Keyboard shortcuts
     document.addEventListener("keydown", (e) => {
@@ -2526,6 +2526,7 @@ function claudeMdSizeOf(text) {
 
 function renderClaudeMdSize(size, exists = true) {
     const badge = document.getElementById("claudemd-size-badge");
+    if (!badge) return;
     if (!size || !exists) { badge.hidden = true; return; }
     claudeMdLimits = { max_lines: size.max_lines, max_tokens: size.max_tokens };
     badge.hidden = false;
@@ -2615,8 +2616,8 @@ function memoryScopeKey() {
 
 function setMemoryScope(scope) {
     memoryState.scope = scope;
-    document.getElementById("btn-memory-scope-project").classList.toggle("active", scope === "project");
-    document.getElementById("btn-memory-scope-home").classList.toggle("active", scope === "home");
+    document.getElementById("btn-memory-scope-project")?.classList.toggle("active", scope === "project");
+    document.getElementById("btn-memory-scope-home")?.classList.toggle("active", scope === "home");
     loadMemoryList();
 }
 
@@ -2632,6 +2633,7 @@ function memoryApiBody(f, extra = {}) {
 
 function renderMemoryBadge(data) {
     const badge = document.getElementById("memory-count-badge");
+    if (!badge) return;
     if (!data || !data.files.length) { badge.hidden = true; return; }
     const problems = data.indexes.some(i => i.over_limit || i.dangling.length) || data.files.some(f => !f.in_index);
     const unreviewed = data.files.filter(f => !f.reviewed_at || f.changed_since_review).length;
@@ -2658,7 +2660,7 @@ async function loadMemoryList() {
     const status = document.getElementById("memory-status");
     const tbody = document.querySelector("#memory-table tbody");
     const key = memoryScopeKey();
-    const note = document.getElementById("memory-scope-note");
+    const note = document.getElementById("memory-scope-note") || document.createElement("div");
     note.hidden = memoryState.scope !== "home";
     if (!key) {
         status.textContent = "No project selected";
@@ -2860,6 +2862,7 @@ async function restoreMemory(archivedFile) {
 const globalMd = { mtime: null, dirty: false };
 
 function applySizeBadge(badge, size, what) {
+    if (!badge) return;
     if (!size) { badge.hidden = true; return; }
     badge.hidden = false;
     badge.textContent = size.lines;
@@ -3343,7 +3346,7 @@ async function loadGitStatus() {
                         <p style="color:var(--text-muted);font-size:12px;margin-bottom:10px;">This project directory is not a git repository.</p>
                         <button id="btn-git-init" class="toolbar-btn primary" style="margin:0 auto;">Initialize Git Repo</button>
                     </div>`;
-                document.getElementById("btn-git-init").addEventListener("click", async () => {
+                document.getElementById("btn-git-init")?.addEventListener("click", async () => {
                     try {
                         const initResp = await fetch("/api/projects/" + encodeURIComponent(activeProject) + "/git-init", { method: "POST" });
                         const initData = await initResp.json();
