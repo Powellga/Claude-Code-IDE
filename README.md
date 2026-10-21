@@ -110,6 +110,8 @@ Every project's CLAUDE.md carries a **Project Context Log** section - a standing
 
 Because CLAUDE.md loads in full into every session, its size is a standing cost, and a self-maintained log tends to grow. The CLAUDE.md tab carries a size badge for the current project: the line count, grey within limits, amber near the limit, red over it (defaults 250 lines or about 5,000 tokens, overridable with `claude_md_max_lines` / `claude_md_max_tokens` in `settings.json`). Hovering explains the numbers; the badge updates on project switch and live while editing. The fix for a red badge is to move feature detail and history into the project's `docs/` folder and leave one-line pointers in CLAUDE.md.
 
+`tools/dream_experiment.py` is an experimental memory review ("dream"): it digests a project's recent Claude Code transcripts in plain Python, removes secrets, has Claude find recurring patterns (repeated mistakes, failing tools, corrections, rules that were ignored), and writes a report of proposed memory changes with quoted evidence. It never edits memory files; every proposal is for a person to accept or reject. It uses a dedicated API key read from AWS SSM and passed only to its own subprocess, with a hard per-run spending cap.
+
 ### Native Session Resume
 Rather than trying to inject previous conversation context into a new session (which breaks Claude Code's TUI and has timing issues), the IDE uses Claude Code's own session management. Each session is started with `--session-id <uuid>`, and resuming uses `--resume <uuid>`. Claude Code restores the full conversation context natively, including tool call history and system prompts that aren't visible in the transcript.
 
