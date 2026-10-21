@@ -20,7 +20,7 @@
     <!-- Socket.IO -->
     <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.7.4/dist/socket.io.min.js"></script>
 
-    <link rel="stylesheet" href="/static/css/style.css?v=20261021-2">
+    <link rel="stylesheet" href="/static/css/style.css?v=20261021-3">
 </head>
 <body>
     <!-- ─── Title Bar ──────────────────────────────────────────── -->
@@ -263,12 +263,17 @@
             <!-- Memory Panel -->
             <div id="memory-panel" class="panel">
                 <div id="memory-toolbar">
+                    <div class="memory-scope">
+                        <button id="btn-memory-scope-project" class="memory-scope-btn active" title="Memories of the project selected in the sidebar">This project</button>
+                        <button id="btn-memory-scope-home" class="memory-scope-btn" title="System memories external to the IDE: Claude Code sessions run in your home folder (a plain terminal, or an IDE tab started with no project)">🏠 Home folder (system)</button>
+                    </div>
                     <span id="memory-status" class="memory-status">No project selected</span>
                     <div class="toolbar-spacer"></div>
                     <button id="btn-memory-review-all" class="toolbar-btn primary" title="Review this project's memories one at a time, oldest first">Review all</button>
                     <button id="btn-memory-refresh" class="toolbar-btn" title="Re-read the memory folder from disk">↻ Refresh</button>
                 </div>
                 <div id="memory-list-view" class="memory-content">
+                    <div id="memory-scope-note" class="memory-alert memory-scope-note" hidden></div>
                     <div id="memory-alerts"></div>
                     <table id="memory-table" class="usage-data-table">
                         <thead><tr><th>Memory</th><th>Type</th><th>Changed</th><th>Reviewed</th><th></th></tr></thead>
@@ -563,6 +568,6 @@
     <div id="context-menu" style="display:none;position:fixed;z-index:2000;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,0.5);min-width:160px;padding:4px 0;">
     </div>
 
-    <script src="/static/js/app.js?v=20261021-2"></script>
+    <script src="/static/js/app.js?v=20261021-3"></script>
 </body>
 </html>

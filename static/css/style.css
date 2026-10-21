@@ -1194,6 +1194,13 @@ html, body {
     gap: 8px;
 }
 .memory-status { font-size: var(--font-size-sm); color: var(--text-secondary); }
+.memory-scope { display: flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; margin-right: 6px; }
+.memory-scope-btn { background: transparent; border: none; color: var(--text-secondary); font-size: 12px; padding: 4px 10px; cursor: pointer; }
+.memory-scope-btn + .memory-scope-btn { border-left: 1px solid var(--border); }
+.memory-scope-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+.memory-scope-btn.active { background: var(--accent-dim); color: var(--text-bright); }
+.memory-scope-note { border-left-color: var(--info); line-height: 1.5; }
+.memory-scope-note code { font-family: var(--font-mono); font-size: 11px; }
 .memory-content { flex: 1; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; }
 .memory-empty { color: var(--text-muted); font-size: var(--font-size-sm); padding: 24px 4px; }
 .memory-alert {

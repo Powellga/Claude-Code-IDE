@@ -1615,6 +1615,8 @@ function initUI() {
 
     // Memory tab buttons
     document.getElementById("btn-memory-refresh").addEventListener("click", loadMemoryList);
+    document.getElementById("btn-memory-scope-project").addEventListener("click", () => setMemoryScope("project"));
+    document.getElementById("btn-memory-scope-home").addEventListener("click", () => setMemoryScope("home"));
     document.getElementById("btn-memory-review-all").addEventListener("click", () => openMemoryReview(0));
     document.getElementById("btn-memory-back").addEventListener("click", loadMemoryList);
     document.getElementById("btn-memory-prev").addEventListener("click", () => { memoryState.pos -= 1; showMemoryReview(); });
@@ -2006,7 +2008,7 @@ async function selectProject(name) {
     // CLAUDE.md size badge and memory count badge, visible whichever tab is open
     refreshClaudeMdSize();
     refreshMemoryBadge();
-    if (document.getElementById("memory-panel").classList.contains("active")) loadMemoryList();
+    if (document.getElementById("memory-panel").classList.contains("active") && memoryState.scope === "project") loadMemoryList();
 
     // Refresh file tree if visible
     if (fileTreeVisible) loadFileTree();
@@ -2602,7 +2604,21 @@ async function saveClaudeMd() {
 // The list is ordered oldest-changed first, the order most likely to surface
 // stale memories, and the reviewer walks the same order.
 
-const memoryState = { project: null, files: [], pos: 0, editing: false, current: null };
+const memoryState = { project: null, files: [], pos: 0, editing: false, current: null, scope: "project" };
+// "home" scope = system memories external to the IDE: Claude Code sessions run in the
+// home folder (plain terminal, or an IDE tab with no project). Server key "__home__".
+const HOME_MEMORY_SCOPE = "__home__";
+
+function memoryScopeKey() {
+    return memoryState.scope === "home" ? HOME_MEMORY_SCOPE : activeProject;
+}
+
+function setMemoryScope(scope) {
+    memoryState.scope = scope;
+    document.getElementById("btn-memory-scope-project").classList.toggle("active", scope === "project");
+    document.getElementById("btn-memory-scope-home").classList.toggle("active", scope === "home");
+    loadMemoryList();
+}
 
 function fmtMemDate(iso) {
     if (!iso) return "";
@@ -2626,9 +2642,9 @@ function renderMemoryBadge(data) {
         (problems ? " The memory index has problems: open the tab for details." : "");
 }
 
-async function fetchMemory() {
-    if (!activeProject) return null;
-    const resp = await fetch(`/api/projects/${encodeURIComponent(activeProject)}/memory`);
+async function fetchMemory(key = activeProject) {
+    if (!key) return null;
+    const resp = await fetch(`/api/projects/${encodeURIComponent(key)}/memory`);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     return resp.json();
 }
@@ -2641,7 +2657,10 @@ async function loadMemoryList() {
     showMemoryView("list");
     const status = document.getElementById("memory-status");
     const tbody = document.querySelector("#memory-table tbody");
-    if (!activeProject) {
+    const key = memoryScopeKey();
+    const note = document.getElementById("memory-scope-note");
+    note.hidden = memoryState.scope !== "home";
+    if (!key) {
         status.textContent = "No project selected";
         tbody.innerHTML = "";
         document.getElementById("memory-alerts").innerHTML = "";
@@ -2650,16 +2669,22 @@ async function loadMemoryList() {
         return;
     }
     let data;
-    try { data = await fetchMemory(); }
+    try { data = await fetchMemory(key); }
     catch (e) { status.textContent = "Could not read the memory folder: " + e.message; return; }
 
-    memoryState.project = activeProject;
+    memoryState.project = key;
     memoryState.files = data.files.slice().sort((a, b) => a.modified.localeCompare(b.modified));
-    renderMemoryBadge(data);
+    if (memoryState.scope === "project") renderMemoryBadge(data);
+    if (memoryState.scope === "home") {
+        const where = data.dirs.length ? data.dirs.map(d => d.path).join(", ") : "(no memory folder yet)";
+        note.innerHTML = `<b>System memories, external to the IDE.</b> These belong to Claude Code sessions run in your home folder: ` +
+            `a plain terminal running <code>claude</code>, or an IDE tab started with no project selected. ` +
+            `IDE project sessions never load them. Folder: <code>${escapeHtml(where)}</code>`;
+    }
 
     const reviewed = data.files.filter(f => f.reviewed_at && !f.changed_since_review).length;
     const idx = data.indexes[0];
-    status.textContent = `${data.files.length} memories, ${reviewed} reviewed` +
+    status.textContent = (memoryState.scope === "home" ? "Home folder: " : "") + `${data.files.length} memories, ${reviewed} reviewed` +
         (idx ? `. Index: ${idx.lines} of ${data.limits.index_lines} lines` : "");
 
     // Index health

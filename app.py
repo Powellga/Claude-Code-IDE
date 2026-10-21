@@ -2220,9 +2220,17 @@ def _save_memory_reviews(data):
     MEMORY_REVIEWS_FILE.write_text(json.dumps(data, indent=1), encoding="utf-8")
 
 
+# Pseudo-project for the Memory tab's "Home folder" view: memories of sessions
+# run in the user's home folder (a plain terminal running `claude`, or an IDE
+# tab started with no project selected). No IDE project points there on
+# purpose - the IDE would create a CLAUDE.md in it, and Claude Code loads
+# parent-folder CLAUDE.md files into every workspace beneath the home folder.
+HOME_MEMORY_SCOPE = "__home__"
+
+
 def _memory_dirs(project):
     """(account, memory dir) for the project's working dir in every config root."""
-    wd = _get_project_working_dir(project)
+    wd = str(Path.home()) if project == HOME_MEMORY_SCOPE else _get_project_working_dir(project)
     if not wd:
         return []
     munged = _claude_project_dirname(wd)
