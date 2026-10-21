@@ -22,6 +22,7 @@ Claude Code is only as good as the context it starts each session with. The IDE 
 3. **A size badge on the CLAUDE.md tab.** The current project's line count shows on the tab: grey within limits, amber near the limit, red over it. Hovering explains the numbers and the fix. It updates on project switch and live while editing, and the limits can be changed in `settings.json` (`claude_md_max_lines`, `claude_md_max_tokens`).
 4. **Dreaming: a memory review from real sessions.** `tools/dream_experiment.py` reads a project's recent Claude Code transcripts alongside its memory files, finds recurring patterns, and writes a report of proposed memory changes, each backed by quotes from the sessions. A person accepts or rejects every proposal. Details below.
 
+5. **A Memory tab for Claude Code's saved memories.** Claude Code also keeps per-project memories (one fact per file plus a `MEMORY.md` index) in a hidden folder under `~/.claude/projects/`; across 47 projects there were 163 of them, all invisible in the IDE. The 🧠 Memory tab, next to CLAUDE.md, lists the current project's memories oldest-changed first (the likeliest to be stale), with each one's description, type, last change and last review. It flags index problems automatically: memories missing from the index, index entries pointing at deleted files, and an index longer than Claude Code's load limit (only the first 200 lines or 25 KB are ever read). **Review all** walks them one at a time: **Keep** marks a memory reviewed and moves on, **Edit** changes it in place (guarded against a running session rewriting the same file), and **Retire** moves it to an archive and removes its index line, so sessions stop seeing it; any retired memory can be restored from the list. Review marks are stored in the IDE's own data, never in the memory files.
 ### How dreaming works
 
 Plain Python does the mechanics; Claude only reads and proposes.
@@ -73,6 +74,7 @@ The original plan also covered versioned memory history, write-conflict checks, 
 - **Session Export** — Download transcripts as `.md` or `.txt` files
 - **CLAUDE.md Editor** — Read, edit, and save CLAUDE.md project instructions directly in the IDE
 - **CLAUDE.md Size Badge** - The CLAUDE.md tab shows the project's line count, turning amber near and red over the lean-memory limit (250 lines or about 5,000 tokens)
+- **Memory Tab** - Lists Claude Code's saved memories for the current project, flags index problems, and walks them one at a time to keep, edit, or retire (archived, restorable)
 - **Dream Review** - A report-only memory review that reads a project's recent session transcripts and proposes evidence-backed memory changes (see "Context Engineering and Dreaming" above)
 - **File Upload** — Upload files (Excel, Word, images, etc.) to the project directory for Claude to read via MCP tools
 - **Screenshot Capture** — One-click Windows Snipping Tool integration: capture a screen region and Claude analyzes it automatically

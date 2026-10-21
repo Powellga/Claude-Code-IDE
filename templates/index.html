@@ -20,7 +20,7 @@
     <!-- Socket.IO -->
     <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.7.4/dist/socket.io.min.js"></script>
 
-    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/style.css?v=20261021-1">
 </head>
 <body>
     <!-- ─── Title Bar ──────────────────────────────────────────── -->
@@ -97,6 +97,11 @@
                     <span class="tab-icon">📝</span>
                     <span class="tab-label">CLAUDE.md</span>
                     <span class="tab-badge" id="claudemd-size-badge" hidden></span>
+                </div>
+                <div class="tab" data-tab="memory" title="Claude Code's saved memories for this project: list them, review them one at a time, edit or retire">
+                    <span class="tab-icon">🧠</span>
+                    <span class="tab-label">Memory</span>
+                    <span class="tab-badge" id="memory-count-badge" hidden></span>
                 </div>
                 <div class="tab" data-tab="gitdiff" title="View git status and diffs for the project">
                     <span class="tab-icon">🔀</span>
@@ -252,6 +257,45 @@
                 </div>
                 <div id="claudemd-editor-container">
                     <textarea id="claudemd-editor" spellcheck="false" placeholder="No CLAUDE.md found. Start typing to create one..."></textarea>
+                </div>
+            </div>
+
+            <!-- Memory Panel -->
+            <div id="memory-panel" class="panel">
+                <div id="memory-toolbar">
+                    <span id="memory-status" class="memory-status">No project selected</span>
+                    <div class="toolbar-spacer"></div>
+                    <button id="btn-memory-review-all" class="toolbar-btn primary" title="Review this project's memories one at a time, oldest first">Review all</button>
+                    <button id="btn-memory-refresh" class="toolbar-btn" title="Re-read the memory folder from disk">↻ Refresh</button>
+                </div>
+                <div id="memory-list-view" class="memory-content">
+                    <div id="memory-alerts"></div>
+                    <table id="memory-table" class="usage-data-table">
+                        <thead><tr><th>Memory</th><th>Type</th><th>Changed</th><th>Reviewed</th><th></th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                    <div id="memory-empty" class="memory-empty" hidden>This project has no saved memories yet. Claude Code creates them as you work.</div>
+                    <div id="memory-archived"></div>
+                </div>
+                <div id="memory-review-view" class="memory-content" hidden>
+                    <div class="memory-review-bar">
+                        <button id="btn-memory-back" class="toolbar-btn" title="Back to the memory list">← List</button>
+                        <span id="memory-review-pos" class="memory-status"></span>
+                        <div class="toolbar-spacer"></div>
+                        <button id="btn-memory-prev" class="toolbar-btn" title="Previous memory">‹ Prev</button>
+                        <button id="btn-memory-next" class="toolbar-btn" title="Next memory, without marking this one reviewed">Next ›</button>
+                    </div>
+                    <div id="memory-review-meta"></div>
+                    <div id="memory-review-body" class="markdown-body"></div>
+                    <textarea id="memory-review-editor" spellcheck="false" hidden></textarea>
+                    <div class="memory-review-actions">
+                        <button id="btn-memory-keep" class="toolbar-btn primary" title="Mark this memory reviewed and go to the next one">✓ Keep</button>
+                        <button id="btn-memory-edit" class="toolbar-btn" title="Edit this memory file">✎ Edit</button>
+                        <button id="btn-memory-save" class="toolbar-btn primary" title="Save your edits to the memory file" hidden>Save</button>
+                        <button id="btn-memory-cancel" class="toolbar-btn" title="Discard your edits" hidden>Cancel</button>
+                        <div class="toolbar-spacer"></div>
+                        <button id="btn-memory-retire" class="toolbar-btn danger" title="Retire: move this memory to the archive and remove it from the index. It can be restored from the list.">Retire</button>
+                    </div>
                 </div>
             </div>
 
@@ -490,6 +534,6 @@
     <div id="context-menu" style="display:none;position:fixed;z-index:2000;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,0.5);min-width:160px;padding:4px 0;">
     </div>
 
-    <script src="/static/js/app.js?v=20260709-1"></script>
+    <script src="/static/js/app.js?v=20261021-1"></script>
 </body>
 </html>

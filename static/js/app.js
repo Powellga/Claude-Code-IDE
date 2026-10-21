@@ -1598,6 +1598,18 @@ function initUI() {
     document.getElementById("btn-export-md").addEventListener("click", () => exportSession("md"));
     document.getElementById("btn-export-txt").addEventListener("click", () => exportSession("txt"));
 
+    // Memory tab buttons
+    document.getElementById("btn-memory-refresh").addEventListener("click", loadMemoryList);
+    document.getElementById("btn-memory-review-all").addEventListener("click", () => openMemoryReview(0));
+    document.getElementById("btn-memory-back").addEventListener("click", loadMemoryList);
+    document.getElementById("btn-memory-prev").addEventListener("click", () => { memoryState.pos -= 1; showMemoryReview(); });
+    document.getElementById("btn-memory-next").addEventListener("click", () => { memoryState.pos += 1; showMemoryReview(); });
+    document.getElementById("btn-memory-keep").addEventListener("click", memoryKeep);
+    document.getElementById("btn-memory-edit").addEventListener("click", () => setMemoryEditing(true));
+    document.getElementById("btn-memory-cancel").addEventListener("click", showMemoryReview);
+    document.getElementById("btn-memory-save").addEventListener("click", () => memorySave(false));
+    document.getElementById("btn-memory-retire").addEventListener("click", memoryRetire);
+
     // CLAUDE.md buttons
     document.getElementById("btn-claudemd-save").addEventListener("click", saveClaudeMd);
     document.getElementById("btn-claudemd-reload").addEventListener("click", loadClaudeMd);
@@ -1640,6 +1652,9 @@ function initUI() {
             }
             if (tab.dataset.tab === "claudemd") {
                 loadClaudeMd();
+            }
+            if (tab.dataset.tab === "memory") {
+                loadMemoryList();
             }
             if (tab.dataset.tab === "gitdiff") {
                 loadGitStatus();
@@ -1973,8 +1988,10 @@ async function selectProject(name) {
     // Update navigate (live URL) button visibility
     updateNavigateButton(name);
 
-    // CLAUDE.md size badge on its tab, visible whichever tab is open
+    // CLAUDE.md size badge and memory count badge, visible whichever tab is open
     refreshClaudeMdSize();
+    refreshMemoryBadge();
+    if (document.getElementById("memory-panel").classList.contains("active")) loadMemoryList();
 
     // Refresh file tree if visible
     if (fileTreeVisible) loadFileTree();
@@ -2562,6 +2579,235 @@ async function saveClaudeMd() {
     } catch (e) {
         console.error("Failed to save CLAUDE.md:", e);
     }
+}
+
+// ─── Memory Tab ─────────────────────────────────────────────────────────
+// Claude Code's auto memory for the active project (one fact per file plus a
+// MEMORY.md index, stored under ~/.claude/projects/<munged cwd>/memory/).
+// The list is ordered oldest-changed first, the order most likely to surface
+// stale memories, and the reviewer walks the same order.
+
+const memoryState = { project: null, files: [], pos: 0, editing: false, current: null };
+
+function fmtMemDate(iso) {
+    if (!iso) return "";
+    const d = new Date(iso);
+    return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+
+function memoryApiBody(f, extra = {}) {
+    return JSON.stringify({ project: memoryState.project, account: f.account, file: f.file, ...extra });
+}
+
+function renderMemoryBadge(data) {
+    const badge = document.getElementById("memory-count-badge");
+    if (!data || !data.files.length) { badge.hidden = true; return; }
+    const problems = data.indexes.some(i => i.over_limit || i.dangling.length) || data.files.some(f => !f.in_index);
+    const unreviewed = data.files.filter(f => !f.reviewed_at || f.changed_since_review).length;
+    badge.hidden = false;
+    badge.textContent = data.files.length;
+    badge.className = "tab-badge" + (problems ? " warn" : "");
+    badge.title = `${data.files.length} saved memories, ${unreviewed} not reviewed yet.` +
+        (problems ? " The memory index has problems: open the tab for details." : "");
+}
+
+async function fetchMemory() {
+    if (!activeProject) return null;
+    const resp = await fetch(`/api/projects/${encodeURIComponent(activeProject)}/memory`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    return resp.json();
+}
+
+async function refreshMemoryBadge() {
+    try { renderMemoryBadge(await fetchMemory()); } catch (e) { renderMemoryBadge(null); }
+}
+
+async function loadMemoryList() {
+    showMemoryView("list");
+    const status = document.getElementById("memory-status");
+    const tbody = document.querySelector("#memory-table tbody");
+    if (!activeProject) {
+        status.textContent = "No project selected";
+        tbody.innerHTML = "";
+        document.getElementById("memory-alerts").innerHTML = "";
+        document.getElementById("memory-archived").innerHTML = "";
+        renderMemoryBadge(null);
+        return;
+    }
+    let data;
+    try { data = await fetchMemory(); }
+    catch (e) { status.textContent = "Could not read the memory folder: " + e.message; return; }
+
+    memoryState.project = activeProject;
+    memoryState.files = data.files.slice().sort((a, b) => a.modified.localeCompare(b.modified));
+    renderMemoryBadge(data);
+
+    const reviewed = data.files.filter(f => f.reviewed_at && !f.changed_since_review).length;
+    const idx = data.indexes[0];
+    status.textContent = `${data.files.length} memories, ${reviewed} reviewed` +
+        (idx ? `. Index: ${idx.lines} of ${data.limits.index_lines} lines` : "");
+
+    // Index health
+    const alerts = [];
+    for (const i of data.indexes) {
+        const acct = data.indexes.length > 1 ? ` (${i.account})` : "";
+        if (i.over_limit) alerts.push(["bad", `The MEMORY.md index${acct} is ${i.lines} lines / ${Math.round(i.bytes / 1024)} KB. Claude Code only loads the first ${data.limits.index_lines} lines or 25 KB, so entries past that are never seen.`]);
+        for (const name of i.dangling) alerts.push(["bad", `The index${acct} points to ${name}, which no longer exists.`]);
+    }
+    const notIndexed = data.files.filter(f => !f.in_index);
+    if (notIndexed.length) alerts.push(["", `${notIndexed.length} memor${notIndexed.length === 1 ? "y is" : "ies are"} not listed in the MEMORY.md index, so sessions may never find ${notIndexed.length === 1 ? "it" : "them"}: ${notIndexed.map(f => f.file).join(", ")}.`]);
+    document.getElementById("memory-alerts").innerHTML = alerts.map(([cls, msg]) =>
+        `<div class="memory-alert ${cls}">${escapeHtml(msg)}</div>`).join("");
+
+    document.getElementById("memory-empty").hidden = data.files.length > 0;
+    document.getElementById("btn-memory-review-all").disabled = data.files.length === 0;
+    tbody.innerHTML = memoryState.files.map((f, i) => {
+        const flags = [];
+        if (!f.in_index) flags.push(`<div class="memory-flag">Not in the index</div>`);
+        if (f.past_index_cutoff) flags.push(`<div class="memory-flag bad">Index entry is past the ${data.limits.index_lines}-line cut-off</div>`);
+        const rev = f.reviewed_at
+            ? (f.changed_since_review
+                ? `<span class="memory-flag" title="Reviewed ${escapeHtml(fmtMemDate(f.reviewed_at))}, changed since">Changed since review</span>`
+                : `<span class="memory-reviewed">${escapeHtml(fmtMemDate(f.reviewed_at))}</span>`)
+            : `<span class="memory-never">Never</span>`;
+        const acct = f.account !== "Default" ? ` <span class="memory-never">(${escapeHtml(f.account)})</span>` : "";
+        return `<tr>
+            <td><div class="memory-name">${escapeHtml(f.name)}${acct}</div>
+                <div class="memory-desc">${escapeHtml(f.description || f.file)}</div>${flags.join("")}</td>
+            <td><span class="memory-type ${escapeHtml(f.type)}">${escapeHtml(f.type)}</span></td>
+            <td title="${escapeHtml(f.modified)}">${escapeHtml(fmtMemDate(f.modified))}</td>
+            <td>${rev}</td>
+            <td><button class="toolbar-btn" data-mem-review="${i}" title="Open this memory to review it">Review</button></td>
+        </tr>`;
+    }).join("");
+    tbody.querySelectorAll("[data-mem-review]").forEach(btn =>
+        btn.addEventListener("click", () => openMemoryReview(parseInt(btn.dataset.memReview, 10))));
+
+    const arch = document.getElementById("memory-archived");
+    arch.innerHTML = data.archived.length
+        ? `<div class="memory-archived-title">RETIRED (${data.archived.length})</div>` + data.archived.map(a =>
+            `<div class="memory-archived-row"><span>${escapeHtml(a.file)}</span>
+             <span class="memory-never">retired ${escapeHtml(fmtMemDate(a.archived_at))}</span>
+             <button class="toolbar-btn" data-mem-restore="${escapeHtml(a.archived_file)}" title="Move this memory back and re-add its index line">Restore</button></div>`).join("")
+        : "";
+    arch.querySelectorAll("[data-mem-restore]").forEach(btn =>
+        btn.addEventListener("click", () => restoreMemory(btn.dataset.memRestore)));
+}
+
+function showMemoryView(which) {
+    document.getElementById("memory-list-view").hidden = which !== "list";
+    document.getElementById("memory-review-view").hidden = which !== "review";
+}
+
+async function openMemoryReview(index) {
+    if (!memoryState.files.length) return;
+    memoryState.pos = Math.max(0, Math.min(index, memoryState.files.length - 1));
+    showMemoryView("review");
+    await showMemoryReview();
+}
+
+function setMemoryEditing(on) {
+    memoryState.editing = on;
+    document.getElementById("memory-review-body").hidden = on;
+    document.getElementById("memory-review-editor").hidden = !on;
+    document.getElementById("btn-memory-edit").hidden = on;
+    document.getElementById("btn-memory-keep").hidden = on;
+    document.getElementById("btn-memory-retire").hidden = on;
+    document.getElementById("btn-memory-save").hidden = !on;
+    document.getElementById("btn-memory-cancel").hidden = !on;
+}
+
+async function showMemoryReview() {
+    setMemoryEditing(false);
+    const f = memoryState.files[memoryState.pos];
+    const total = memoryState.files.length;
+    document.getElementById("memory-review-pos").textContent = `Memory ${memoryState.pos + 1} of ${total}`;
+    document.getElementById("btn-memory-prev").disabled = memoryState.pos === 0;
+    document.getElementById("btn-memory-next").disabled = memoryState.pos >= total - 1;
+
+    const q = new URLSearchParams({ project: memoryState.project, account: f.account, file: f.file });
+    const resp = await fetch(`/api/memory/file?${q}`);
+    if (!resp.ok) {
+        document.getElementById("memory-review-body").textContent = "This memory file could not be read. It may have been moved or deleted.";
+        memoryState.current = null;
+        return;
+    }
+    const data = await resp.json();
+    memoryState.current = data;
+
+    const reviewed = f.reviewed_at
+        ? (f.changed_since_review ? `Reviewed ${fmtMemDate(f.reviewed_at)}, but changed since.` : `Reviewed ${fmtMemDate(f.reviewed_at)}.`)
+        : "Not reviewed yet.";
+    const warn = [!f.in_index ? "Not listed in the MEMORY.md index." : "", f.past_index_cutoff ? "Its index entry is past the load cut-off." : ""].filter(Boolean).join(" ");
+    document.getElementById("memory-review-meta").innerHTML =
+        `<div class="memory-name">${escapeHtml(f.name)}</div>` +
+        `<div>${escapeHtml(f.description || "")}</div>` +
+        `<div><span class="memory-type ${escapeHtml(f.type)}">${escapeHtml(f.type)}</span> ` +
+        `${escapeHtml(f.file)}${f.account !== "Default" ? " (" + escapeHtml(f.account) + ")" : ""}. ` +
+        `Last changed ${escapeHtml(fmtMemDate(f.modified))}. ${escapeHtml(reviewed)}` +
+        (warn ? ` <span class="memory-flag">${escapeHtml(warn)}</span>` : "") + `</div>`;
+
+    const body = data.content.replace(/^---\s*\n[\s\S]*?\n---\s*\n/, "");
+    document.getElementById("memory-review-body").innerHTML = await renderMarkdown(body);
+    document.getElementById("memory-review-editor").value = data.content;
+}
+
+async function memoryKeep() {
+    const f = memoryState.files[memoryState.pos];
+    const resp = await fetch("/api/memory/review", { method: "POST", headers: { "Content-Type": "application/json" }, body: memoryApiBody(f) });
+    if (!resp.ok) { showToast("Could not mark this memory reviewed."); return; }
+    const out = await resp.json();
+    f.reviewed_at = out.reviewed_at;
+    f.changed_since_review = false;
+    if (memoryState.pos < memoryState.files.length - 1) {
+        memoryState.pos += 1;
+        await showMemoryReview();
+    } else {
+        showToast("That was the last memory. Review complete.");
+        await loadMemoryList();
+    }
+    refreshMemoryBadge();
+}
+
+async function memorySave(force = false) {
+    const f = memoryState.files[memoryState.pos];
+    const content = document.getElementById("memory-review-editor").value;
+    const extra = { content };
+    if (!force && memoryState.current) extra.known_mtime = memoryState.current.mtime;
+    const resp = await fetch("/api/memory/file", { method: "PUT", headers: { "Content-Type": "application/json" }, body: memoryApiBody(f, extra) });
+    if (resp.status === 409) {
+        if (confirm("This memory changed on disk while you were editing it, probably updated by a running Claude session.\n\nOK = save your version over it.\nCancel = discard your edits and reload the current version.")) {
+            return memorySave(true);
+        }
+        await showMemoryReview();
+        return;
+    }
+    if (!resp.ok) { showToast("Could not save this memory."); return; }
+    showToast("Memory saved.");
+    f.modified = new Date().toISOString();
+    await showMemoryReview();
+}
+
+async function memoryRetire() {
+    const f = memoryState.files[memoryState.pos];
+    if (!confirm(`Retire "${f.name}"?\n\nIt moves to the memory archive and its line is removed from the MEMORY.md index, so sessions stop seeing it. You can restore it from the list at any time.`)) return;
+    const resp = await fetch("/api/memory/archive", { method: "POST", headers: { "Content-Type": "application/json" }, body: memoryApiBody(f) });
+    if (!resp.ok) { showToast("Could not retire this memory."); return; }
+    showToast(`Retired ${f.file}. Restore it from the list if needed.`);
+    memoryState.files.splice(memoryState.pos, 1);
+    refreshMemoryBadge();
+    if (!memoryState.files.length) { await loadMemoryList(); return; }
+    memoryState.pos = Math.min(memoryState.pos, memoryState.files.length - 1);
+    await showMemoryReview();
+}
+
+async function restoreMemory(archivedFile) {
+    const resp = await fetch("/api/memory/restore", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project: memoryState.project, archived_file: archivedFile }) });
+    const out = await resp.json().catch(() => ({}));
+    if (!resp.ok) { showToast(out.error || "Could not restore this memory."); return; }
+    showToast(`Restored ${out.file}.`);
+    await loadMemoryList();
 }
 
 // ─── Settings ───────────────────────────────────────────────────────────

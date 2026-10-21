@@ -2144,6 +2144,226 @@ def api_put_claude_md(project):
     return jsonify({"status": "saved", "path": str(filepath), "size": _claude_md_size(content)})
 
 
+# ── Memory API ──
+#
+# Claude Code's auto memory lives outside the project, in
+# <config>/projects/<munged cwd>/memory/: one fact per *.md file plus a
+# MEMORY.md index. Only the index loads at session start, and only its first
+# 200 lines / 25 KB; files reach a session through the index. "Retire" moves a
+# file into memory/_archived/ and drops its index line (kept so restore can
+# put it back). Review marks live in the IDE's data dir, never in the files.
+
+MEMORY_INDEX_MAX_LINES = 200
+MEMORY_INDEX_MAX_BYTES = 25 * 1024
+MEMORY_REVIEWS_FILE = DATA_DIR / "memory_reviews.json"
+_MEMORY_FILE_RE = re.compile(r"^[A-Za-z0-9._\-]+\.md$")
+_INDEX_LINK_RE = re.compile(r"\]\(([^)\s]+\.md)\)")
+
+
+def _load_memory_reviews():
+    try:
+        data = json.loads(MEMORY_REVIEWS_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        data = {}
+    data.setdefault("reviews", {})
+    data.setdefault("archived", [])
+    return data
+
+
+def _save_memory_reviews(data):
+    MEMORY_REVIEWS_FILE.write_text(json.dumps(data, indent=1), encoding="utf-8")
+
+
+def _memory_dirs(project):
+    """(account, memory dir) for the project's working dir in every config root."""
+    wd = _get_project_working_dir(project)
+    if not wd:
+        return []
+    munged = _claude_project_dirname(wd)
+    return [(account, root / munged / "memory") for account, root in _transcript_roots()]
+
+
+def _resolve_memory_file(project, account, filename, archived=False):
+    """Validated path of one memory file, or None. Never accepts a free path."""
+    if not filename or not _MEMORY_FILE_RE.match(filename):
+        return None
+    for acct, mdir in _memory_dirs(project):
+        if acct == (account or "Default"):
+            return (mdir / "_archived" / filename) if archived else (mdir / filename)
+    return None
+
+
+def _parse_memory_frontmatter(text):
+    meta = {"name": "", "description": "", "type": ""}
+    m = re.match(r"^---\s*\n(.*?)\n---\s*\n", text, re.S)
+    if not m:
+        return meta
+    for line in m.group(1).splitlines():
+        km = re.match(r"^\s*(name|description|type)\s*:\s*(.*)$", line)
+        if km and not meta[km.group(1)]:
+            val = km.group(2).strip()
+            if len(val) >= 2 and val[0] == val[-1] and val[0] in "\"'":
+                val = val[1:-1].replace('\\"', '"')
+            meta[km.group(1)] = val
+    return meta
+
+
+def _memory_sha(text):
+    import hashlib
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+@app.route("/api/projects/<project>/memory", methods=["GET"])
+def api_project_memory(project):
+    """List the project's memory files with review state and index health."""
+    reviews = _load_memory_reviews()
+    files, indexes, dirs = [], [], []
+    for account, mdir in _memory_dirs(project):
+        if not mdir.is_dir():
+            continue
+        dirs.append({"account": account, "path": str(mdir)})
+        index_path = mdir / "MEMORY.md"
+        index_text = index_path.read_text(encoding="utf-8", errors="replace") if index_path.exists() else ""
+        index_lines = index_text.splitlines()
+        linked = {}
+        for n, line in enumerate(index_lines, start=1):
+            for target in _INDEX_LINK_RE.findall(line):
+                linked.setdefault(Path(target).name, n)
+        on_disk = set()
+        for f in sorted(mdir.glob("*.md")):
+            if f.name == "MEMORY.md":
+                continue
+            on_disk.add(f.name)
+            text = f.read_text(encoding="utf-8", errors="replace")
+            meta = _parse_memory_frontmatter(text)
+            rev = reviews["reviews"].get(str(f))
+            index_line = linked.get(f.name)
+            files.append({
+                "file": f.name, "account": account, "path": str(f),
+                "name": meta["name"] or f.stem, "description": meta["description"],
+                "type": meta["type"] or "unknown",
+                "modified": datetime.fromtimestamp(f.stat().st_mtime).isoformat(timespec="seconds"),
+                "lines": len(text.splitlines()), "size": len(text.encode("utf-8")),
+                "in_index": index_line is not None,
+                "past_index_cutoff": bool(index_line and index_line > MEMORY_INDEX_MAX_LINES),
+                "reviewed_at": rev.get("reviewed_at") if rev else None,
+                "changed_since_review": bool(rev and rev.get("sha") != _memory_sha(text)),
+            })
+        indexes.append({
+            "account": account, "exists": index_path.exists(),
+            "lines": len(index_lines), "bytes": len(index_text.encode("utf-8")),
+            "over_limit": len(index_lines) > MEMORY_INDEX_MAX_LINES
+                          or len(index_text.encode("utf-8")) > MEMORY_INDEX_MAX_BYTES,
+            "dangling": sorted(name for name in linked if name not in on_disk),
+        })
+    my_dirs = {str(d) for _, d in _memory_dirs(project)}
+    archived = [a for a in reviews.get("archived", []) if a.get("memory_dir") in my_dirs and not a.get("restored_at")]
+    return jsonify({"files": files, "indexes": indexes, "dirs": dirs, "archived": archived,
+                    "limits": {"index_lines": MEMORY_INDEX_MAX_LINES, "index_bytes": MEMORY_INDEX_MAX_BYTES}})
+
+
+@app.route("/api/memory/file", methods=["GET"])
+def api_memory_file_get():
+    p = request.args
+    path = _resolve_memory_file(p.get("project"), p.get("account"), p.get("file"), p.get("archived") == "1")
+    if not path or not path.exists():
+        return jsonify({"error": "memory file not found"}), 404
+    return jsonify({"content": path.read_text(encoding="utf-8", errors="replace"),
+                    "mtime": path.stat().st_mtime, "path": str(path)})
+
+
+@app.route("/api/memory/file", methods=["PUT"])
+def api_memory_file_put():
+    data = request.json or {}
+    path = _resolve_memory_file(data.get("project"), data.get("account"), data.get("file"))
+    if not path or not path.exists():
+        return jsonify({"error": "memory file not found"}), 404
+    known = data.get("known_mtime")
+    if known is not None and abs(path.stat().st_mtime - float(known)) > 0.001:
+        # A session in this project may have rewritten the file while it was open
+        return jsonify({"error": "changed on disk", "content": path.read_text(encoding="utf-8", errors="replace"),
+                        "mtime": path.stat().st_mtime}), 409
+    path.write_text(data.get("content", ""), encoding="utf-8")
+    return jsonify({"status": "saved", "mtime": path.stat().st_mtime})
+
+
+@app.route("/api/memory/review", methods=["POST"])
+def api_memory_review():
+    data = request.json or {}
+    path = _resolve_memory_file(data.get("project"), data.get("account"), data.get("file"))
+    if not path or not path.exists():
+        return jsonify({"error": "memory file not found"}), 404
+    reviews = _load_memory_reviews()
+    stamp = datetime.now().isoformat(timespec="seconds")
+    reviews["reviews"][str(path)] = {"reviewed_at": stamp,
+                                     "sha": _memory_sha(path.read_text(encoding="utf-8", errors="replace"))}
+    _save_memory_reviews(reviews)
+    return jsonify({"status": "reviewed", "reviewed_at": stamp})
+
+
+@app.route("/api/memory/archive", methods=["POST"])
+def api_memory_archive():
+    """Retire a memory: move it to memory/_archived/ and remove its index line."""
+    data = request.json or {}
+    path = _resolve_memory_file(data.get("project"), data.get("account"), data.get("file"))
+    if not path or not path.exists():
+        return jsonify({"error": "memory file not found"}), 404
+    mdir = path.parent
+    arch_dir = mdir / "_archived"
+    arch_dir.mkdir(exist_ok=True)
+    dest = arch_dir / path.name
+    if dest.exists():
+        dest = arch_dir / f"{path.stem}.{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
+    removed_lines = []
+    index_path = mdir / "MEMORY.md"
+    if index_path.exists():
+        kept = []
+        for line in index_path.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True):
+            if any(Path(t).name == path.name for t in _INDEX_LINK_RE.findall(line)):
+                removed_lines.append(line.rstrip("\r\n"))
+            else:
+                kept.append(line)
+        if removed_lines:
+            index_path.write_text("".join(kept), encoding="utf-8")
+    shutil.move(str(path), str(dest))
+    reviews = _load_memory_reviews()
+    reviews.setdefault("archived", []).append({
+        "file": path.name, "archived_file": dest.name, "account": data.get("account") or "Default",
+        "memory_dir": str(mdir), "index_lines": removed_lines,
+        "archived_at": datetime.now().isoformat(timespec="seconds")})
+    reviews["reviews"].pop(str(path), None)
+    _save_memory_reviews(reviews)
+    return jsonify({"status": "archived", "archived_file": dest.name, "index_lines_removed": len(removed_lines)})
+
+
+@app.route("/api/memory/restore", methods=["POST"])
+def api_memory_restore():
+    """Undo a retire: move the file back and re-add its index line(s)."""
+    data = request.json or {}
+    reviews = _load_memory_reviews()
+    my_dirs = {str(d) for _, d in _memory_dirs(data.get("project"))}
+    rec = next((a for a in reviews.get("archived", [])
+                if a.get("archived_file") == data.get("archived_file") and a.get("memory_dir") in my_dirs
+                and not a.get("restored_at")), None)
+    if not rec or not _MEMORY_FILE_RE.match(rec["archived_file"]):
+        return jsonify({"error": "archived memory not found"}), 404
+    mdir = Path(rec["memory_dir"])
+    src, dest = mdir / "_archived" / rec["archived_file"], mdir / rec["file"]
+    if not src.exists():
+        return jsonify({"error": "archived file is missing on disk"}), 404
+    if dest.exists():
+        return jsonify({"error": f"{rec['file']} already exists; rename or retire it first"}), 409
+    shutil.move(str(src), str(dest))
+    if rec.get("index_lines"):
+        index_path = mdir / "MEMORY.md"
+        existing = index_path.read_text(encoding="utf-8", errors="replace") if index_path.exists() else ""
+        sep = "" if (not existing or existing.endswith("\n")) else "\n"
+        index_path.write_text(existing + sep + "\n".join(rec["index_lines"]) + "\n", encoding="utf-8")
+    rec["restored_at"] = datetime.now().isoformat(timespec="seconds")
+    _save_memory_reviews(reviews)
+    return jsonify({"status": "restored", "file": rec["file"]})
+
+
 # ── Search API ──
 
 @app.route("/api/search", methods=["GET"])
