@@ -259,6 +259,7 @@ Rules:
 - For a rule_ignored finding, propose making the existing rule clearer or more prominent rather than adding a duplicate.
 - For edit, delete and move_to_doc, old_text must be copied EXACTLY from the target file (a whole line or more, unique in that file). For add, give insert_after as an exact existing line to insert after (or leave it empty to append), and leave old_text empty.
 - target_file must be one of the memory file names exactly as listed in the input. If a pattern clearly applies to all of Gregg's projects, use action global_candidate with target_file "GLOBAL" (it will not be applied from a single-project dream).
+- Never propose a rule the GLOBAL RULES already state, and never re-propose anything in PAST DREAM DECISIONS.
 - Never include credentials. Write new text in plain, whole sentences; never use em dashes.
 - Use observations for anything worth telling Gregg that is not a memory change (for example: memory looked healthy in an area, or a finding was too weak to act on).
 Return JSON matching the schema."""
@@ -301,8 +302,28 @@ def main():
     docs = sorted(p.name for p in (workdir / "docs").glob("*.md")) if (workdir / "docs").is_dir() else []
     target_sha = {k: hashlib.sha256(v.encode()).hexdigest() for k, v in memory_text.items()}
 
+    global_md = Path.home() / ".claude" / "CLAUDE.md"
+    global_text = global_md.read_text(encoding="utf-8") if global_md.exists() else ""
+
+    # Decisions from earlier dreams on this workdir, so nothing is re-proposed
+    past = []
+    for rj in sorted((IDE_DIR / "data" / "dreams").glob("dream_*/run.json")):
+        try:
+            prev = json.loads(rj.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if prev.get("workdir") != str(workdir):
+            continue
+        for pp in prev.get("proposals", []):
+            if pp.get("decision"):
+                past.append({"run": prev.get("run_id"), "proposal": pp.get("new_text") or pp.get("old_text"),
+                             "decision": pp["decision"].get("status"), "note": pp["decision"].get("note", "")})
+
     def memory_block(full_memory_folder):
         out = []
+        if global_text:
+            out.append("===== GLOBAL RULES (~/.claude/CLAUDE.md, loaded in every project; read-only context, "
+                       "never propose a project rule that duplicates one of these) =====\n" + global_text)
         for k, t in memory_text.items():
             if k == "CLAUDE.md" or full_memory_folder:
                 out.append(f"===== MEMORY FILE: {k} =====\n{t}")
@@ -335,7 +356,11 @@ def main():
         print(f"[dream]   batch {i // BATCH_SIZE + 1}: {len(found)} findings, ${c:.3f}")
 
     remaining = max(0.5, args.budget - cost)
-    body = ("===== FINDINGS =====\n" + json.dumps(findings, indent=1) + "\n\n" + memory_block(True))
+    body = ("===== FINDINGS =====\n" + json.dumps(findings, indent=1) + "\n\n"
+            + ("===== PAST DREAM DECISIONS (already accepted, modified or rejected by Gregg; never "
+               "re-propose these, and treat a 'modified' note as the rule that stands) =====\n"
+               + redact(json.dumps(past, indent=1), blocklist) + "\n\n" if past else "")
+            + memory_block(True))
     data, c = call_claude(ORCHESTRATOR_MODEL, ORCHESTRATOR_INSTRUCTION, body, PROPOSALS_SCHEMA,
                           min(2.0, remaining), api_key, staging)
     cost += c
