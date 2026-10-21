@@ -127,6 +127,17 @@ def git_push_backup():
 
     log("Pushing to GitHub...")
     result = git("push", "origin", "main")
+    if result.returncode != 0 and ("fetch first" in result.stderr or "non-fast-forward" in result.stderr):
+        # GitHub has a commit this clone lacks (a backup pushed from another
+        # clone). The repo is only a mirror of data/, so local always wins:
+        # merge the stray commit with the "ours" strategy, which keeps it in
+        # history but leaves our tree, then push again. A rejection like this
+        # once blocked every backup push for six weeks without anyone noticing.
+        log("  GitHub has a backup commit this copy lacks - merging it (keeping local data) and retrying")
+        git("fetch", "origin")
+        merge = git("merge", "-s", "ours", "origin/main", "-m", f"Merge stray remote backup commit ({timestamp})")
+        if merge.returncode == 0:
+            result = git("push", "origin", "main")
     if result.returncode != 0:
         # Try master branch
         result = git("push", "origin", "master")
