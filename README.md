@@ -6,6 +6,57 @@ This is not a thin wrapper or a chat UI that calls an API. It manages real PTY p
 <img width="2553" height="1408" alt="claude code IDE screenshot" src="https://github.com/user-attachments/assets/3082a17a-7141-4961-80da-d5427f23c495" />
 
 
+## ✨ New: Context Engineering and Dreaming
+
+Claude Code is only as good as the context it starts each session with. The IDE now treats project memory as something engineered: kept current while you work, kept lean so it does not crowd out what matters, and periodically reviewed against what actually happened in past sessions. The design follows Anthropic's talk *"At Anthropic, we don't write prompts anymore"* and the memory and dreams design of Claude Managed Agents, rebuilt locally around Claude Code's own transcripts.
+
+### The problem it solves
+
+- **Memory grows but never shrinks.** Every session loads the project's CLAUDE.md in full. Sessions add facts and almost never prune, so the busiest project's file had reached 1,114 lines (about 18,600 tokens, five times Anthropic's guidance). That costs context before any work starts, and important rules get lost among hundreds of lines of history.
+- **The same mistakes repeat quietly.** When a command fails, Claude usually recovers on its own, so nobody notices the same failure happening session after session. Corrections the user makes are forgotten unless someone writes them down.
+
+### What the IDE does now
+
+1. **Self-maintaining project memory.** Every project's CLAUDE.md carries a *Project Context Log* with a standing instruction for Claude to keep it current, in the same session that facts change. New projects get it from the template, and the server adds it to any project that lacks it when a session starts.
+2. **A lean-memory standard.** A project CLAUDE.md stays under **250 lines and about 5,000 tokens**. Rules that prevent mistakes stay in CLAUDE.md, one line each; feature detail and history move into the project's `docs/` folder, with a "read this before changing X" pointer. A one-time cleanup brought eight oversized projects under the limit, cutting the memory loaded at session start from about 118,000 tokens to about 17,000 across them. Every section was moved word for word by script and verified, so nothing was lost.
+3. **A size badge on the CLAUDE.md tab.** The current project's line count shows on the tab: grey within limits, amber near the limit, red over it. Hovering explains the numbers and the fix. It updates on project switch and live while editing, and the limits can be changed in `settings.json` (`claude_md_max_lines`, `claude_md_max_tokens`).
+4. **Dreaming: a memory review from real sessions.** `tools/dream_experiment.py` reads a project's recent Claude Code transcripts alongside its memory files, finds recurring patterns, and writes a report of proposed memory changes, each backed by quotes from the sessions. A person accepts or rejects every proposal. Details below.
+
+### How dreaming works
+
+Plain Python does the mechanics; Claude only reads and proposes.
+
+1. **Select** the project's most recent Claude Code transcripts (the complete JSONL record of every turn, tool call and error, not the screen recording).
+2. **Digest** each one in Python, with no model involved: the user's messages, likely corrections, interruptions, tool calls and tool errors. File contents and long tool output are dropped, and each digest is capped at about 15,000 tokens.
+3. **Redact secrets** before any model sees anything: common credential patterns, high-entropy strings, and a literal blocklist of the machine's real tokens, read at run time and never logged.
+4. **Analyze** the digests in batches with Sonnet. Each finding is typed (missing knowledge, wrong or stale memory, repeated mistake, tool failure, preference, or *rule ignored*: memory already says it, but sessions still broke it) and carries verbatim evidence quotes.
+5. **Orchestrate** with one Opus call that turns the findings into concrete proposals: add, edit, delete, move to a doc, or flag as a candidate for the global rules. It proposes only patterns seen in at least two sessions or one clear correction, prefers edits over additions, and respects the 250-line limit. It also reads the global `~/.claude/CLAUDE.md` and every earlier decision, so it never duplicates a global rule or re-proposes something already decided.
+6. **Check** every proposal in Python: a second secret scan, the target must be a known memory file, and any text being replaced must appear exactly once.
+7. **Report** to `data/dreams/<run_id>/report.md` and `run.json`. Nothing is applied automatically.
+
+**Safety by design:** the dreaming calls run headless Claude Code with `--bare` (no CLAUDE.md, hooks or auto-memory of its own), `--no-session-persistence` (no transcript of its own to pollute later reviews), no tools at all, and a hard spending cap on every call. It uses a dedicated API key kept in AWS SSM and passed only to the dream's own subprocess, so interactive sessions stay on the normal subscription login.
+
+### The first dream: what it found
+
+The first run reviewed 12 sessions of the busiest project in about four minutes, for **$1.11**. It produced 39 findings and 13 proposals; 12 were accepted and 1 was accepted with a correction. It surfaced things that were invisible from inside any single session:
+
+- **Recurring tool failures** that cost time without anyone noticing: Windows shell quoting and `/tmp` path errors in 7 sessions, Docker Desktop not running in 3, Monday API scripts retried blindly in 3.
+- **Rules that existed but kept being broken**, such as "agree before changing anything" (corrected in 6 sessions). The fix was making the rule clearer and more prominent, not adding a duplicate.
+- **A rule that memory stated ambiguously**, and **two memory files that contradicted each other** about when pushing is allowed.
+- **Stale memory files** worth retiring, and a rule that belonged in the global instructions for every project.
+
+### Running a dream
+
+```bash
+python tools/dream_experiment.py <project working directory> [--sessions 12] [--budget 5]
+```
+
+The script needs the AWS CLI with access to the SSM parameter holding the dreaming API key (`/temarkbox/anthropic/dreaming-key`; change the name in the script for another setup). The report lands in `data/dreams/<run_id>/`. Record each decision in that run's `run.json` (`decision` on each proposal) so later dreams learn from it.
+
+### Deliberately not built (yet)
+
+The original plan also covered versioned memory history, write-conflict checks, a Dreams tab, and scheduled dreaming. Those were set aside on purpose: the person reviewing every session is already the most effective safeguard, and the experiment was run first to prove the value before building features. A "Dream now" button for any project is the likely next step.
+
 ## What It Does
 
 - **Interactive Terminal** — Runs Claude Code in a real terminal (xterm.js) inside your browser
@@ -21,6 +72,8 @@ This is not a thin wrapper or a chat UI that calls an API. It manages real PTY p
 - **Session Viewer** — Browse and read past conversations with clean, readable transcripts
 - **Session Export** — Download transcripts as `.md` or `.txt` files
 - **CLAUDE.md Editor** — Read, edit, and save CLAUDE.md project instructions directly in the IDE
+- **CLAUDE.md Size Badge** - The CLAUDE.md tab shows the project's line count, turning amber near and red over the lean-memory limit (250 lines or about 5,000 tokens)
+- **Dream Review** - A report-only memory review that reads a project's recent session transcripts and proposes evidence-backed memory changes (see "Context Engineering and Dreaming" above)
 - **File Upload** — Upload files (Excel, Word, images, etc.) to the project directory for Claude to read via MCP tools
 - **Screenshot Capture** — One-click Windows Snipping Tool integration: capture a screen region and Claude analyzes it automatically
 - **Conversation Import** — Paste text from claude.ai, ChatGPT, email, or any source into a modal; saved as a file and Claude picks up where it left off
@@ -40,7 +93,7 @@ This is not a thin wrapper or a chat UI that calls an API. It manages real PTY p
 - **Context Menus** — Right-click projects to rename, delete, set working directory, or pin; right-click sessions to rename, delete, or move to another project
 - **Import External Sessions** — Pull in any Claude Code session from outside the IDE by selecting from a list or pasting a UUID; creates a new project with the session immediately resumable
 - **Session UUID Display** — View and copy session UUIDs from the session viewer toolbar for use with `claude --resume` outside the IDE
-- **Auto-Generated CLAUDE.md** — New projects get a minimal CLAUDE.md with project name, description, and working directory (IDE-level instructions live in the global `~/.claude/CLAUDE.md`)
+- **Auto-Generated CLAUDE.md** — New projects get a CLAUDE.md with project name, description, working directory, and a self-maintaining Project Context Log that Claude keeps current (IDE-level instructions live in the global `~/.claude/CLAUDE.md`)
 - **Permission Mode** — Status bar dropdown below the terminal with five modes: Default (uses the `defaultMode` from your own Claude Code settings.json), Ask Permissions, Auto Accept Edits, Plan Mode, and Bypass Permissions. The selection is remembered across page reloads and applies to the next session you start or resume - changing it while a session is running shows a reminder toast (use Shift+Tab inside the terminal to switch a live session). Note that Auto Accept Edits only auto-approves file edits; other actions like shell commands still prompt, which is Claude Code's own behavior for that mode
 - **Open in Explorer** — Click the folder icon in the file tree header to open the project's working directory in your system file manager
 - **Clipboard Support** — Terminal copy that actually works: drag over text in a running Claude session and it lands in the real Windows clipboard (OSC 52 bridge), drag-select auto-copies outside the TUI, Ctrl+C copies selections, Ctrl+V pastes without double-paste issues, and every copy shows a confirming toast
