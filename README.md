@@ -68,7 +68,7 @@ The original plan also covered versioned memory history, write-conflict checks, 
 - **Editor Pane** — A deliberately unobtrusive Monaco editor slides in from a slim `<` handle on the terminal's right edge: compact file tree, open-file tabs with dirty indicators, Ctrl+S save, changed-on-disk conflict guard, capped at half the window, remembered per session tab
 - **Refresh Survival** — Reloading the page (or accidentally closing it) no longer kills running sessions: the server keeps them alive for a grace period and the page reattaches on load, screen intact
 - **Paste-Image** — Ctrl+V an image from the clipboard straight into a session: it lands in the project directory and Claude is prompted to analyze it
-- **Usage Dashboard** — Token consumption per project and per day, parsed from Claude Code's own transcripts with 7/30-day and all-time summaries
+- **Usage Dashboard** — Token consumption per project and per day, parsed from Claude Code's own transcripts with this/last billing period, 7/30-day and all-time summaries
 - **Session Recording** — Every conversation is automatically captured and cleaned via virtual terminal rendering (pyte)
 - **Session Resume** — Resume any saved session using Claude Code's native `--resume` flag
 - **Project Organization** — Group related sessions into named projects with custom working directories
@@ -263,7 +263,7 @@ sessions have the elevated access needed for system-level tasks.
 | **Session Viewer** | Read saved transcripts, export as .md/.txt, or resume |
 | **CLAUDE.md** | Edit project instructions file (Ctrl+S to save) |
 | **Git** | Branch info, changed files, recent commits, and color-highlighted diffs; 🌐 Open Repo button (chooser when the project pushes to multiple repos) and a 📖 README viewer with rendered markdown |
-| **Usage** | Token usage dashboard: 7/30-day and all-time summary cards, a daily output-token bar chart, and a per-project table - parsed from Claude Code's own transcripts and cached |
+| **Usage** | Token usage dashboard: this and last billing period (renewal day set in the Usage toolbar), 7/30-day and all-time summary cards, a daily output-token bar chart, and a per-project table - parsed from Claude Code's own transcripts and cached |
 
 ## Architecture
 

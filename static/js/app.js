@@ -1530,6 +1530,7 @@ function initUI() {
 
     // Usage dashboard
     document.getElementById("btn-usage-refresh")?.addEventListener("click", loadUsage);
+    document.getElementById("usage-billing-day")?.addEventListener("change", saveBillingDay);
 
     // Anthropic account selector + settings editor
     initAccountSelector();
@@ -3133,6 +3134,31 @@ function fmtCost(v) {
     return "$" + v.toFixed(2);
 }
 
+// "Oct 1 - Oct 31" for a {start, next_start} billing period (end shown inclusive)
+function fmtPeriod(p) {
+    if (!p || !p.start) return "";
+    const opts = { month: "short", day: "numeric" };
+    const start = new Date(p.start + "T00:00:00");
+    const end = new Date(p.next_start + "T00:00:00");
+    end.setDate(end.getDate() - 1);
+    return `${start.toLocaleDateString(undefined, opts)} - ${end.toLocaleDateString(undefined, opts)}`;
+}
+
+async function saveBillingDay() {
+    const input = document.getElementById("usage-billing-day");
+    const day = parseInt(input.value, 10);
+    if (!(day >= 1 && day <= 28)) {
+        showToast("Billing day must be between 1 and 28");
+        return;
+    }
+    await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ billing_cycle_day: day }),
+    });
+    loadUsage();
+}
+
 async function loadUsage() {
     const status = document.getElementById("usage-status");
     status.textContent = "Scanning Claude Code transcripts... (first load can take a while)";
@@ -3154,7 +3180,12 @@ function renderUsage(data) {
     // Summary cards
     const cards = document.getElementById("usage-cards");
     cards.innerHTML = "";
+    const billing = data.billing || {};
+    const dayInput = document.getElementById("usage-billing-day");
+    if (dayInput && billing.cycle_day && document.activeElement !== dayInput) dayInput.value = billing.cycle_day;
     const defs = [
+        [`This billing period (${fmtPeriod(billing.current)})`, data.totals.period],
+        [`Last billing period (${fmtPeriod(billing.previous)})`, data.totals.prev_period],
         ["Last 7 days", data.totals.last7],
         ["Last 30 days", data.totals.last30],
         ["All time", data.totals.all],
@@ -3182,6 +3213,8 @@ function renderUsage(data) {
             fmtTokens(a.input),
             fmtTokens(a.output),
             fmtTokens(a.cache_read),
+            fmtCost(a.period_cost || 0),
+            fmtCost(a.prev_period_cost || 0),
             fmtCost(a.cost || 0),
             (a.last_used || "").slice(0, 10),
         ]) {
@@ -3220,6 +3253,8 @@ function renderUsage(data) {
             fmtTokens(p.input),
             fmtTokens(p.output),
             fmtTokens(p.cache_read),
+            fmtCost(p.period_cost || 0),
+            fmtCost(p.prev_period_cost || 0),
             fmtCost(p.cost || 0),
             (p.last_used || "").slice(0, 10),
         ];

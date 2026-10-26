@@ -20,7 +20,7 @@
     <!-- Socket.IO -->
     <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.7.4/dist/socket.io.min.js"></script>
 
-    <link rel="stylesheet" href="/static/css/style.css?v=20261021-4">
+    <link rel="stylesheet" href="/static/css/style.css?v=20261025-1">
 </head>
 <body>
     <!-- ─── Title Bar ──────────────────────────────────────────── -->
@@ -330,6 +330,9 @@
                 <div id="usage-toolbar">
                     <span id="usage-status" style="font-size:12px;color:var(--text-secondary);">Token usage across all IDE sessions</span>
                     <div class="toolbar-spacer"></div>
+                    <label style="font-size:12px;color:var(--text-secondary);" title="Day of the month your Anthropic billing renews (1-28)">Billing period starts on day
+                        <input id="usage-billing-day" type="number" min="1" max="28" value="1" style="width:48px;">
+                    </label>
                     <button id="btn-usage-refresh" class="toolbar-btn" title="Re-scan Claude Code transcripts">↻ Refresh</button>
                 </div>
                 <div id="usage-content">
@@ -341,14 +344,14 @@
                     <div class="usage-section-title">BY ACCOUNT</div>
                     <table id="usage-accounts-table" class="usage-data-table">
                         <thead>
-                            <tr><th>Account</th><th>Sessions</th><th>Turns</th><th>Input</th><th>Output</th><th>Cache read</th><th>Est. cost</th><th>Last used</th></tr>
+                            <tr><th>Account</th><th>Sessions</th><th>Turns</th><th>Input</th><th>Output</th><th>Cache read</th><th>This period</th><th>Last period</th><th>All time</th><th>Last used</th></tr>
                         </thead>
                         <tbody></tbody>
                     </table>
                     <div class="usage-section-title">BY PROJECT</div>
                     <table id="usage-table" class="usage-data-table">
                         <thead>
-                            <tr><th>Project</th><th>Sessions</th><th>Turns</th><th>Input</th><th>Output</th><th>Cache read</th><th>Est. cost</th><th>Last used</th></tr>
+                            <tr><th>Project</th><th>Sessions</th><th>Turns</th><th>Input</th><th>Output</th><th>Cache read</th><th>This period</th><th>Last period</th><th>All time</th><th>Last used</th></tr>
                         </thead>
                         <tbody></tbody>
                     </table>
@@ -568,6 +571,6 @@
     <div id="context-menu" style="display:none;position:fixed;z-index:2000;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,0.5);min-width:160px;padding:4px 0;">
     </div>
 
-    <script src="/static/js/app.js?v=20261021-4"></script>
+    <script src="/static/js/app.js?v=20261025-1"></script>
 </body>
 </html>

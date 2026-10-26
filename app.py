@@ -825,6 +825,8 @@ def api_put_settings():
                 "api_key": (acct.get("api_key") or "").strip(),
             })
         settings["accounts"] = accounts
+    if "billing_cycle_day" in data:
+        settings["billing_cycle_day"] = max(1, min(28, int(data["billing_cycle_day"])))
     save_settings(settings)
     return jsonify(settings)
 
@@ -908,7 +910,9 @@ def _parse_jsonl_usage(path):
 
     Streamed responses repeat the same message id across several entries
     with identical usage - keep the last entry per message id so nothing
-    is double-counted. Returns {"models": {model_id: usage dict}}.
+    is double-counted. Returns {"models": {model_id: usage dict},
+    "days": {local YYYY-MM-DD: {model_id: usage dict}}} - the per-day
+    breakdown (by message timestamp) feeds the billing-period totals.
     """
     per_msg = {}
     with open(path, encoding="utf-8", errors="replace") as f:
@@ -925,17 +929,47 @@ def _parse_jsonl_usage(path):
             msg = obj.get("message") or {}
             usage = msg.get("usage")
             if usage:
-                per_msg[msg.get("id") or obj.get("uuid")] = (msg.get("model") or "unknown", usage)
+                per_msg[msg.get("id") or obj.get("uuid")] = (
+                    msg.get("model") or "unknown", usage, _local_day(obj.get("timestamp")))
 
     models = {}
-    for model, usage in per_msg.values():
-        bucket = models.setdefault(model, _zero_usage())
-        bucket["turns"] += 1
-        bucket["input"] += usage.get("input_tokens", 0) or 0
-        bucket["output"] += usage.get("output_tokens", 0) or 0
-        bucket["cache_read"] += usage.get("cache_read_input_tokens", 0) or 0
-        bucket["cache_creation"] += usage.get("cache_creation_input_tokens", 0) or 0
-    return {"models": models}
+    days = {}
+    for model, usage, day in per_msg.values():
+        targets = [models.setdefault(model, _zero_usage())]
+        if day:
+            targets.append(days.setdefault(day, {}).setdefault(model, _zero_usage()))
+        for bucket in targets:
+            bucket["turns"] += 1
+            bucket["input"] += usage.get("input_tokens", 0) or 0
+            bucket["output"] += usage.get("output_tokens", 0) or 0
+            bucket["cache_read"] += usage.get("cache_read_input_tokens", 0) or 0
+            bucket["cache_creation"] += usage.get("cache_creation_input_tokens", 0) or 0
+    return {"models": models, "days": days}
+
+
+def _local_day(ts):
+    """Local-time YYYY-MM-DD for a transcript's UTC ISO timestamp, or ""."""
+    if not ts:
+        return ""
+    try:
+        return datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone().strftime("%Y-%m-%d")
+    except (ValueError, TypeError):
+        return ""
+
+
+def _add_months(d, n):
+    """Same day-of-month n months from date d (callers keep day <= 28)."""
+    m = d.month - 1 + n
+    return d.replace(year=d.year + m // 12, month=m % 12 + 1)
+
+
+def _billing_periods(today, cycle_day):
+    """(previous_start, current_start, next_start) dates for a monthly
+    billing cycle that renews on cycle_day (1-28)."""
+    start = today.replace(day=cycle_day)
+    if today.day < cycle_day:
+        start = _add_months(start, -1)
+    return _add_months(start, -1), start, _add_months(start, 1)
 
 
 @app.route("/api/usage", methods=["GET"])
@@ -1019,7 +1053,19 @@ def api_usage():
         _add_usage(dst, usage)
         dst["cost"] += cost
 
-    totals = {"all": zero_bucket(), "last7": zero_bucket(), "last30": zero_bucket()}
+    cycle_day = max(1, min(28, int(settings.get("billing_cycle_day", 1) or 1)))
+    prev_start, cur_start, next_start = (
+        d.strftime("%Y-%m-%d") for d in _billing_periods(now.date(), cycle_day))
+
+    def period_of(day):
+        if cur_start <= day < next_start:
+            return "period"
+        if prev_start <= day < cur_start:
+            return "prev_period"
+        return None
+
+    totals = {"all": zero_bucket(), "last7": zero_bucket(), "last30": zero_bucket(),
+              "period": zero_bucket(), "prev_period": zero_bucket()}
     projects_agg = {}
     days_agg = {}
     accounts_agg = {}
@@ -1034,9 +1080,9 @@ def api_usage():
         except OSError:
             continue
         entry = cache.get(sid)
-        # "models" distinguishes the current cache format from the pre-cost one
+        # "models" + "days" distinguish the current cache format from older ones
         if (entry and entry.get("mtime") == stat.st_mtime and entry.get("size") == stat.st_size
-                and "models" in (entry.get("usage") or {})):
+                and "models" in (entry.get("usage") or {}) and "days" in entry["usage"]):
             parsed = entry["usage"]
         else:
             parsed = _parse_jsonl_usage(path)
@@ -1060,18 +1106,31 @@ def api_usage():
             add_bucket(totals["last30"], usage, cost)
 
         pkey = meta.get("project") or "(no project)"
-        pa = projects_agg.setdefault(pkey, {**zero_bucket(), "sessions": 0, "last_used": ""})
+        pa = projects_agg.setdefault(pkey, {**zero_bucket(), "sessions": 0, "last_used": "",
+                                            "period_cost": 0.0, "prev_period_cost": 0.0})
         add_bucket(pa, usage, cost)
         pa["sessions"] += 1
         if created > pa["last_used"]:
             pa["last_used"] = created
 
         akey = meta.get("account") or "Default"
-        aa = accounts_agg.setdefault(akey, {**zero_bucket(), "sessions": 0, "last_used": ""})
+        aa = accounts_agg.setdefault(akey, {**zero_bucket(), "sessions": 0, "last_used": "",
+                                            "period_cost": 0.0, "prev_period_cost": 0.0})
         add_bucket(aa, usage, cost)
         aa["sessions"] += 1
         if created > aa["last_used"]:
             aa["last_used"] = created
+
+        # Billing periods go by each message's own date, so a session that
+        # runs across a renewal is split between the two periods.
+        for day, day_models in parsed["days"].items():
+            period = period_of(day)
+            if not period:
+                continue
+            day_cost = _cost_of_models(day_models, pricing)
+            add_bucket(totals[period], _sum_models(day_models), day_cost)
+            pa[period + "_cost"] += day_cost
+            aa[period + "_cost"] += day_cost
 
         day = created[:10]
         if day and age_days is not None and age_days < 30:
@@ -1094,6 +1153,11 @@ def api_usage():
         "generated": now.isoformat(),
         "sessions_counted": counted,
         "totals": totals,
+        "billing": {
+            "cycle_day": cycle_day,
+            "current": {"start": cur_start, "next_start": next_start},
+            "previous": {"start": prev_start, "next_start": cur_start},
+        },
         "projects": projects_out,
         "accounts": accounts_out,
         "days": days_out,
