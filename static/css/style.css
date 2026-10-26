@@ -1694,6 +1694,17 @@ html, body {
 }
 
 .usage-data-table { margin-bottom: 18px; }
+.usage-project-row { cursor: pointer; }
+.usage-project-detail td { background: var(--bg-secondary); padding: 10px 14px; }
+.usage-project-detail:hover td { background: var(--bg-secondary); }
+.usage-project-chart {
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: 70px;
+    margin-bottom: 8px;
+}
+.usage-project-days { font-size: 11px; color: var(--text-secondary); line-height: 1.6; }
 
 /* ─── Utilities ────────────────────────────────────────────────────────── */
 

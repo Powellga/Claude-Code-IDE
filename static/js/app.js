@@ -3209,13 +3209,14 @@ function renderUsage(data) {
         for (const c of [
             a.account,
             a.sessions.toLocaleString(),
+            fmtCost(a.period_cost || 0),
+            fmtCost(a.prev_period_cost || 0),
+            fmtCost(a.last30_cost || 0),
+            fmtCost(a.cost || 0),
             a.turns.toLocaleString(),
             fmtTokens(a.input),
             fmtTokens(a.output),
             fmtTokens(a.cache_read),
-            fmtCost(a.period_cost || 0),
-            fmtCost(a.prev_period_cost || 0),
-            fmtCost(a.cost || 0),
             (a.last_used || "").slice(0, 10),
         ]) {
             const td = document.createElement("td");
@@ -3239,23 +3240,33 @@ function renderUsage(data) {
     }
     if (!days.length) chart.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:12px;">No activity in the last 30 days</div>';
 
-    // Per-project table
+    // Period column headers carry their dates
+    document.querySelectorAll(".usage-period-th").forEach(th => {
+        const p = billing[th.dataset.period];
+        const label = th.dataset.period === "current" ? "This period" : "Last period";
+        th.textContent = p ? `${label} (${fmtPeriod(p)})` : label;
+    });
+
+    // Per-project table; clicking a row opens that project's daily costs
     const tbody = document.querySelector("#usage-table tbody");
     tbody.innerHTML = "";
     for (const p of data.projects) {
         const proj = cachedProjects.find(x => x.name === p.project);
         const name = (proj && (proj.display_name || proj.name)) || p.project;
         const tr = document.createElement("tr");
+        tr.className = "usage-project-row";
+        const open = usageExpandedProjects.has(p.project);
         const cells = [
-            name,
+            (open ? "▾ " : "▸ ") + name,
             p.sessions.toLocaleString(),
+            fmtCost(p.period_cost || 0),
+            fmtCost(p.prev_period_cost || 0),
+            fmtCost(p.last30_cost || 0),
+            fmtCost(p.cost || 0),
             p.turns.toLocaleString(),
             fmtTokens(p.input),
             fmtTokens(p.output),
             fmtTokens(p.cache_read),
-            fmtCost(p.period_cost || 0),
-            fmtCost(p.prev_period_cost || 0),
-            fmtCost(p.cost || 0),
             (p.last_used || "").slice(0, 10),
         ];
         for (const c of cells) {
@@ -3263,8 +3274,55 @@ function renderUsage(data) {
             td.textContent = c;
             tr.appendChild(td);
         }
+        tr.addEventListener("click", () => {
+            if (usageExpandedProjects.has(p.project)) usageExpandedProjects.delete(p.project);
+            else usageExpandedProjects.add(p.project);
+            renderUsage(data);
+        });
         tbody.appendChild(tr);
+        if (open) tbody.appendChild(renderProjectDaily(p, billing.last30_start, cells.length));
     }
+}
+
+// Projects whose daily breakdown is open in the Usage tab (kept across refreshes)
+const usageExpandedProjects = new Set();
+
+// Detail row under a project: a 30-day cost bar chart plus a list of active days
+function renderProjectDaily(p, startDay, colspan) {
+    const tr = document.createElement("tr");
+    tr.className = "usage-project-detail";
+    const td = document.createElement("td");
+    td.colSpan = colspan;
+    const byDay = Object.fromEntries((p.daily || []).map(d => [d.date, d]));
+    const start = new Date((startDay || new Date().toISOString().slice(0, 10)) + "T00:00:00");
+    const allDays = [];
+    for (let i = 0; i < 30; i++) {
+        const d = new Date(start);
+        d.setDate(start.getDate() + i);
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        allDays.push(byDay[key] || { date: key, cost: 0, output: 0, turns: 0 });
+    }
+    const max = Math.max(0.01, ...allDays.map(d => d.cost || 0));
+    const chart = document.createElement("div");
+    chart.className = "usage-project-chart";
+    for (const d of allDays) {
+        const bar = document.createElement("div");
+        bar.className = "usage-bar";
+        bar.style.height = (d.cost ? Math.max(3, Math.round((d.cost / max) * 100)) : 1) + "%";
+        bar.title = `${d.date}
+≈ ${fmtCost(d.cost || 0)} · ${fmtTokens(d.output || 0)} output · ${(d.turns || 0).toLocaleString()} turns`;
+        chart.appendChild(bar);
+    }
+    td.appendChild(chart);
+    const active = allDays.filter(d => d.turns).reverse();
+    const list = document.createElement("div");
+    list.className = "usage-project-days";
+    list.textContent = active.length
+        ? active.map(d => `${d.date.slice(5)}: ${fmtCost(d.cost || 0)}`).join("   ·   ")
+        : "No activity in the last 30 days";
+    td.appendChild(list);
+    tr.appendChild(td);
+    return tr;
 }
 
 // ─── File Upload ────────────────────────────────────────────────────────

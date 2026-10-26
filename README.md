@@ -263,7 +263,7 @@ sessions have the elevated access needed for system-level tasks.
 | **Session Viewer** | Read saved transcripts, export as .md/.txt, or resume |
 | **CLAUDE.md** | Edit project instructions file (Ctrl+S to save) |
 | **Git** | Branch info, changed files, recent commits, and color-highlighted diffs; 🌐 Open Repo button (chooser when the project pushes to multiple repos) and a 📖 README viewer with rendered markdown |
-| **Usage** | Token usage dashboard: this and last billing period (renewal day set in the Usage toolbar), 7/30-day and all-time summary cards, a daily output-token bar chart, and a per-project table - parsed from Claude Code's own transcripts and cached |
+| **Usage** | Token usage dashboard: this and last billing period (renewal day set in the Usage toolbar), 7/30-day and all-time summary cards, a daily output-token bar chart, and a per-project table with this period, last period, last 30 days and all-time cost columns. Click a project to see its cost day by day for the last 30 days. Every cost is split by the date each message was sent, so long sessions are counted on the right days - parsed from Claude Code's own transcripts and cached |
 
 ## Architecture
 

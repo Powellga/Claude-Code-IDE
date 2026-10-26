@@ -17,7 +17,7 @@ import shutil
 import sys
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from flask import Flask, render_template, request, jsonify, send_from_directory, Response
@@ -1057,6 +1057,9 @@ def api_usage():
     prev_start, cur_start, next_start = (
         d.strftime("%Y-%m-%d") for d in _billing_periods(now.date(), cycle_day))
 
+    last7_start = (now.date() - timedelta(days=6)).strftime("%Y-%m-%d")
+    last30_start = (now.date() - timedelta(days=29)).strftime("%Y-%m-%d")
+
     def period_of(day):
         if cur_start <= day < next_start:
             return "period"
@@ -1094,20 +1097,13 @@ def api_usage():
         cost = _cost_of_models(parsed["models"], pricing)
 
         created = meta.get("created") or ""
-        try:
-            age_days = (now - datetime.fromisoformat(created)).days if created else None
-        except ValueError:
-            age_days = None
 
         add_bucket(totals["all"], usage, cost)
-        if age_days is not None and age_days < 7:
-            add_bucket(totals["last7"], usage, cost)
-        if age_days is not None and age_days < 30:
-            add_bucket(totals["last30"], usage, cost)
 
         pkey = meta.get("project") or "(no project)"
         pa = projects_agg.setdefault(pkey, {**zero_bucket(), "sessions": 0, "last_used": "",
-                                            "period_cost": 0.0, "prev_period_cost": 0.0})
+                                            "period_cost": 0.0, "prev_period_cost": 0.0,
+                                            "last30_cost": 0.0, "daily": {}})
         add_bucket(pa, usage, cost)
         pa["sessions"] += 1
         if created > pa["last_used"]:
@@ -1115,26 +1111,33 @@ def api_usage():
 
         akey = meta.get("account") or "Default"
         aa = accounts_agg.setdefault(akey, {**zero_bucket(), "sessions": 0, "last_used": "",
-                                            "period_cost": 0.0, "prev_period_cost": 0.0})
+                                            "period_cost": 0.0, "prev_period_cost": 0.0,
+                                            "last30_cost": 0.0})
         add_bucket(aa, usage, cost)
         aa["sessions"] += 1
         if created > aa["last_used"]:
             aa["last_used"] = created
 
-        # Billing periods go by each message's own date, so a session that
-        # runs across a renewal is split between the two periods.
+        # Billing periods, 7/30-day windows and the daily chart all go by
+        # each message's own date, so a long session is split across days.
         for day, day_models in parsed["days"].items():
             period = period_of(day)
-            if not period:
+            if not period and day < last30_start:
                 continue
             day_cost = _cost_of_models(day_models, pricing)
-            add_bucket(totals[period], _sum_models(day_models), day_cost)
-            pa[period + "_cost"] += day_cost
-            aa[period + "_cost"] += day_cost
-
-        day = created[:10]
-        if day and age_days is not None and age_days < 30:
-            add_bucket(days_agg.setdefault(day, zero_bucket()), usage, cost)
+            day_usage = _sum_models(day_models)
+            if period:
+                add_bucket(totals[period], day_usage, day_cost)
+                pa[period + "_cost"] += day_cost
+                aa[period + "_cost"] += day_cost
+            if day >= last30_start:
+                add_bucket(totals["last30"], day_usage, day_cost)
+                if day >= last7_start:
+                    add_bucket(totals["last7"], day_usage, day_cost)
+                pa["last30_cost"] += day_cost
+                aa["last30_cost"] += day_cost
+                add_bucket(pa["daily"].setdefault(day, zero_bucket()), day_usage, day_cost)
+                add_bucket(days_agg.setdefault(day, zero_bucket()), day_usage, day_cost)
 
     if cache_dirty:
         try:
@@ -1143,8 +1146,9 @@ def api_usage():
         except Exception:
             pass
 
-    projects_out = [{"project": k, **v} for k, v in projects_agg.items()]
-    projects_out.sort(key=lambda x: x["output"], reverse=True)
+    projects_out = [{"project": k, **v, "daily": [{"date": d, **b} for d, b in sorted(v["daily"].items())]}
+                    for k, v in projects_agg.items()]
+    projects_out.sort(key=lambda x: (x["period_cost"], x["cost"]), reverse=True)
     accounts_out = [{"account": k, **v} for k, v in accounts_agg.items()]
     accounts_out.sort(key=lambda x: x["cost"], reverse=True)
     days_out = [{"date": k, **v} for k, v in sorted(days_agg.items())]
@@ -1157,6 +1161,7 @@ def api_usage():
             "cycle_day": cycle_day,
             "current": {"start": cur_start, "next_start": next_start},
             "previous": {"start": prev_start, "next_start": cur_start},
+            "last30_start": last30_start,
         },
         "projects": projects_out,
         "accounts": accounts_out,
