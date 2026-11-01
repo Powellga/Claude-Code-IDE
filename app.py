@@ -103,10 +103,13 @@ active_terminals = {}
 def _account_env(account_name):
     """Resolve an account name to the env overrides that select it.
 
-    Accounts live in settings.json: [{name, config_dir, api_key}]. A config
-    dir makes Claude Code use that directory's credentials/settings (each
-    account = its own CLAUDE_CONFIG_DIR, logged in separately via /login);
-    an api_key sets ANTHROPIC_API_KEY directly. "Default"/empty = no
+    Accounts live in settings.json: [{name, config_dir, api_key,
+    api_key_file}]. A config dir makes Claude Code use that directory's
+    credentials/settings (each account = its own CLAUDE_CONFIG_DIR, logged
+    in separately via /login); an api_key sets ANTHROPIC_API_KEY directly.
+    api_key_file is the same but read from a file at spawn time - preferred,
+    because data/settings.json is mirrored to the GitHub backup repo and a
+    key pasted into it would be copied there. "Default"/empty = no
     overrides, i.e. the user's normal ~/.claude identity.
     """
     if not account_name or account_name == "Default":
@@ -116,11 +119,50 @@ def _account_env(account_name):
             env = {}
             if acct.get("config_dir"):
                 env["CLAUDE_CONFIG_DIR"] = acct["config_dir"]
-            if acct.get("api_key"):
-                env["ANTHROPIC_API_KEY"] = acct["api_key"]
+            key = acct.get("api_key") or ""
+            if not key and acct.get("api_key_file"):
+                try:
+                    key = Path(acct["api_key_file"]).expanduser().read_text(encoding="utf-8").strip()
+                except OSError as e:
+                    print(f"[IDE] Account '{account_name}': cannot read api_key_file ({e})")
+            if key:
+                env["ANTHROPIC_API_KEY"] = key
+                _ensure_api_key_approved(key, acct.get("config_dir"))
             return env
     print(f"[IDE] Unknown account '{account_name}' - spawning with default identity")
     return {}
+
+
+def _ensure_api_key_approved(key, config_dir=None):
+    """Pre-approve an env API key in Claude Code's global config.
+
+    When ANTHROPIC_API_KEY is set and the config dir also holds a claude.ai
+    login, interactive Claude Code asks once whether to use the key, with
+    "No" pre-selected - one stray Enter would bill the session to the
+    subscription instead. Claude Code records the answer by the key's last
+    20 characters in customApiKeyResponses.approved; adding it here skips the
+    prompt. Writes only when the key is missing (Claude Code rewrites this
+    file constantly, so keep writes rare), atomically via a temp file.
+    """
+    cfg = (Path(config_dir) / ".claude.json") if config_dir else (Path.home() / ".claude.json")
+    tail = key[-20:]
+    try:
+        data = json.loads(cfg.read_text(encoding="utf-8")) if cfg.exists() else {}
+        resp = data.setdefault("customApiKeyResponses", {"approved": [], "rejected": []})
+        approved = resp.setdefault("approved", [])
+        rejected = resp.setdefault("rejected", [])
+        if tail in approved and tail not in rejected:
+            return
+        if tail not in approved:
+            approved.append(tail)
+        if tail in rejected:
+            rejected.remove(tail)
+        tmp = cfg.with_suffix(".json.ide-tmp")
+        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, cfg)
+        print(f"[IDE] Pre-approved API key ...{key[-4:]} in {cfg}")
+    except (OSError, ValueError) as e:
+        print(f"[IDE] Could not pre-approve API key in {cfg}: {e}")
 
 
 def _spawn_terminal(sid, project_path=None, cmd=None, claude_session_id=None, term_id=None, account=None):
@@ -813,7 +855,7 @@ def api_put_settings():
     if "notification_sound" in data:
         settings["notification_sound"] = bool(data["notification_sound"])
     if "accounts" in data:
-        # [{name, config_dir, api_key}] - name required, the rest optional
+        # [{name, config_dir, api_key, api_key_file}] - name required, the rest optional
         accounts = []
         for acct in data["accounts"] or []:
             name = (acct.get("name") or "").strip()
@@ -823,6 +865,7 @@ def api_put_settings():
                 "name": name,
                 "config_dir": (acct.get("config_dir") or "").strip(),
                 "api_key": (acct.get("api_key") or "").strip(),
+                "api_key_file": (acct.get("api_key_file") or "").strip(),
             })
         settings["accounts"] = accounts
     if "billing_cycle_day" in data:

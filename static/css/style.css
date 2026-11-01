@@ -1642,6 +1642,45 @@ html, body {
     padding: 4px 0;
 }
 
+/* Per-tab account toggle, overlaid top-right on an idle terminal screen */
+.acct-toggle {
+    position: absolute;
+    top: 8px;
+    right: 22px;            /* clear of the terminal scrollbar */
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 6px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-family: var(--font-ui);
+    font-size: 11px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+.acct-toggle-label {
+    color: var(--text-muted);
+    margin: 0 4px 0 2px;
+    white-space: nowrap;
+}
+.acct-toggle button {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-secondary);
+    font: inherit;
+    padding: 3px 9px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.acct-toggle button:hover { background: var(--bg-hover); color: var(--text-primary); }
+.acct-toggle button.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}
+
 .account-option {
     padding: 7px 14px;
     font-size: var(--font-size-sm);

@@ -108,7 +108,7 @@ The original plan also covered versioned memory history, write-conflict checks, 
 - **Smart Defaults** — New projects auto-fill a dedicated working directory (`~/Claude-Code-IDE-Workspaces/<project-name>`)
 - **Tooltips** — Hover hints on every interactive element
 - **In-App Guide** — A ❓ button in the title bar opens this README rendered right inside the IDE, so the docs always match the running version
-- **Multi-Account** — A 👤 status-bar selector switches which Anthropic account new sessions run under (each account = its own config directory); run different accounts simultaneously in different tabs and flip over when one hits its usage limit
+- **Multi-Account** — Each idle terminal tab shows a "Bill this session to" toggle (mirrored by the 👤 status-bar selector) that picks the account before the session starts: your normal login (the default for every new tab), another config directory, or an API key / key file. Run different accounts simultaneously in different tabs
 - **Dark Theme** — VS Code-inspired dark UI
 
 ## What's New: Phases 20-27
@@ -146,6 +146,10 @@ A 📊 Usage tab reads token consumption straight from Claude Code's own transcr
 ### Phase 27 — Multiple Anthropic accounts, and what things cost
 
 For people with two (or more) Claude accounts: a 👤 selector in the terminal status bar picks which account the next session spawns under, so when one account hits its daily usage limit you flip to the other and keep working. Each account maps to its own `CLAUDE_CONFIG_DIR` — add it in Settings, start a session under it, run `/login` once, done. Different accounts can run **simultaneously** in different tabs, resumes always use the session's original account (its transcript lives in that account's config dir), and the server refuses to open the same session in two tabs (two processes must never write one conversation transcript). The Usage tab gained estimated cost — per-model token buckets priced from a built-in table (overridable in settings.json), shown on the cards, the project table, and a new BY ACCOUNT table that attributes usage and cost to the account that ran each session. Rounding out the phase: session tabs are labeled by session UUID (several tabs on one project were indistinguishable), an ❓ in-app Guide renders this README inside the IDE so the docs always match the running version, and `start-ide.bat` no longer auto-opens a browser on every launch — the accumulated windows were the root cause of duplicate-session races.
+
+### Phase 28 — Pick the billing account per tab
+
+Every idle terminal screen now shows a **Bill this session to** toggle (top right) listing your normal login plus every configured account. The choice is made per tab before the session starts, and new tabs always start on the default login. The 👤 status-bar selector now edits the active tab's choice instead of a global one. A running tab hides the toggle and keeps the account it started with; resumes still use the session's original account. An account can now point at an **API key file** (`api_key_file`) instead of holding the key in `data/settings.json` (which is mirrored to the GitHub backup repo). The key is read when the session spawns and passed as `ANTHROPIC_API_KEY`. The IDE also pre-approves that key in Claude Code's `~/.claude.json`, which skips the one-time "use this API key?" prompt (its default answer would silently fall back to the subscription). Claude Code's banner confirms the result: "API Usage Billing" for a key, the plan name for the login. Note that Claude Code disables claude.ai connectors (Gmail, Microsoft 365, Monday, and so on) in a session that runs on an API key. Locally configured MCP servers still work.
 
 ## How It Works Under the Hood
 

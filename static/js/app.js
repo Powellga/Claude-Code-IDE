@@ -25,10 +25,13 @@ let cachedProjects = [];
 let projectSearchQuery = "";
 // Notification preferences - hydrated from /api/settings on startup
 let ideSettings = { notifications_enabled: true, notification_sound: true };
-// Anthropic accounts: [{name, config_dir, api_key}] from settings; the
-// selector picks which one the NEXT session spawns under
+// Anthropic accounts: [{name, config_dir, api_key, api_key_file}] from
+// settings. The account is chosen PER TAB before its session starts (the
+// toggle on each idle terminal screen, or the status-bar selector, which
+// acts on the active tab). Every new tab starts on "Default" - the normal
+// ~/.claude login, i.e. the TEMARK Team plan.
 let ideAccounts = [];
-let currentAccount = localStorage.getItem("claudeAccount") || "Default";
+const DEFAULT_ACCOUNT_LABEL = "TEMARK Team plan";
 
 function activeSess() {
     return termSessions[activeTermId] || null;
@@ -100,6 +103,8 @@ function initSocket() {
                     summary: sess.sessionLabel || "",
                 };
             }
+            sess.starting = true;
+            renderAccountToggle(sess);
             sess.term.writeln("\r\n\x1b[33m  ⚡ Reconnected - reattaching to session...\x1b[0m\r\n");
             socket.emit("reattach_terminal", { terminal_id: sess.id });
         }
@@ -262,6 +267,7 @@ async function bootstrapSessionTabs() {
         sess.claudeSessionId = o.claude_session_id;
         sess.workingDirectory = o.working_directory;
         sess.account = o.account || "Default";
+        sess.starting = true; // hide the account toggle while reattaching
         sess.sessionLabel = o.summary || null;
         updateSessionTabEl(sess);
         sess.term.writeln("\x1b[33m  ⚡ Reattaching to running session...\x1b[0m");
@@ -317,9 +323,12 @@ function newSessionTab(opts = {}) {
         claudeSessionId: null,
         workingDirectory: null,
         wasRunningBeforeDisconnect: false,
+        nextAccount: "Default", // account the next session in this tab starts under
+        starting: false,        // start/resume/reattach sent, not running yet
     };
     termSessions[id] = sess;
     buildTerminalInstance(sess);
+    renderAccountToggle(sess);
     activateSessionTab(id);
     return sess;
 }
@@ -335,6 +344,7 @@ function activateSessionTab(id) {
     }
     setTimeout(() => { try { sess.fitAddon.fit(); } catch (e) { /* hidden */ } }, 30);
     refreshTerminalToolbar();
+    updateAccountLabel(); // status-bar selector mirrors the active tab
     applyEditorPane(sess); // each tab has its own editor-pane state
     sess.term.focus();
     if (isWatching(sess)) clearAttention(sess);
@@ -398,10 +408,13 @@ function updateSessionTabEl(sess) {
         (sess.claudeSessionId ? `\n${sess.claudeSessionId}` : "");
     sess.tabEl.querySelector(".session-tab-dot").className =
         "session-tab-dot " + (sess.needsAttention ? "attention" : sess.running ? "running" : "idle");
+    renderAccountToggle(sess);
+    if (sess.id === activeTermId) updateAccountLabel();
 }
 
 function setSessRunning(sess, running) {
     sess.running = running;
+    sess.starting = false;
     if (!running) {
         clearTimeout(sess.idleTimer);
         sess.busyStart = null;
@@ -960,11 +973,13 @@ function startTerminal() {
         showToast("Another running tab uses this project's directory - two sessions editing the same files can conflict.", 6000);
     }
 
+    sess.account = validAccount(sess.nextAccount);
+    sess.starting = true;
+
     sess.term.clear();
     sess.term.write("\x1b[?25h"); // re-show cursor hidden by blankEndedTerminal
-    sess.term.writeln("\x1b[90m  Starting Claude Code...\x1b[0m\r\n");
+    sess.term.writeln(`\x1b[90m  Starting Claude Code... (billing: ${accountDisplayName(sess.account)})\x1b[0m\r\n`);
 
-    sess.account = currentAccount;
     updateSessionTabEl(sess);
 
     socket.emit("start_terminal", {
@@ -1123,6 +1138,7 @@ function resumeInTab(project, claudeSessionId, workingDirectory, banner, account
     }
     sess.project = project || null;
     sess.account = account || "Default";
+    sess.starting = true;
     sess.claudeSessionId = claudeSessionId; // label the tab with it immediately
     sess.sessionLabel = sessionLabel || null;
     updateSessionTabEl(sess);
@@ -1241,15 +1257,72 @@ function setPermissionMode(mode, opts = {}) {
 
 // \u2500\u2500\u2500 Anthropic Account Selector \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 //
-// Each account maps to its own CLAUDE_CONFIG_DIR (and optionally an API
-// key), letting you flip to a second subscription when the first hits its
-// usage limit. The selection applies to the NEXT session you start; running
-// tabs keep the account they spawned with, and resumes always use the
-// session's original account.
+// Each account maps to a CLAUDE_CONFIG_DIR and/or an API key (or key file),
+// e.g. the TEMARK Team login vs. a personal API-key org. The choice is per
+// tab: every idle terminal screen shows a toggle (renderAccountToggle) and
+// the status-bar selector edits the ACTIVE tab's choice. A running tab keeps
+// the account it spawned with, and resumes always use the session's
+// original account (its transcript lives in that account's config dir).
+
+function accountDisplayName(name) {
+    return (!name || name === "Default") ? DEFAULT_ACCOUNT_LABEL : name;
+}
+
+// A tab may point at an account deleted in Settings - fall back to Default
+function validAccount(name) {
+    return (name && name !== "Default" && ideAccounts.some(a => a.name === name)) ? name : "Default";
+}
+
+// What the active tab is (or will be) billed to
+function tabAccount(sess) {
+    if (!sess) return "Default";
+    return (sess.running || sess.starting) ? (sess.account || "Default") : validAccount(sess.nextAccount);
+}
+
+function setTabAccount(sess, name) {
+    if (!sess) return;
+    if (sess.running || sess.starting) {
+        showToast(`This tab's session already runs on "${accountDisplayName(sess.account)}". Open a new tab (+) to use a different account.`, 5000);
+        return;
+    }
+    sess.nextAccount = validAccount(name);
+    renderAccountToggle(sess);
+    if (sess.id === activeTermId) updateAccountLabel();
+}
+
+// The per-tab toggle overlaid on the idle terminal screen. Hidden while a
+// session runs (or is starting) and when no extra accounts exist.
+function renderAccountToggle(sess) {
+    if (!sess || !sess.containerEl) return;
+    let el = sess.acctToggleEl;
+    if (!el) {
+        el = document.createElement("div");
+        el.className = "acct-toggle";
+        el.addEventListener("click", (e) => {
+            const btn = e.target.closest("button[data-acct]");
+            if (!btn) return;
+            e.stopPropagation();
+            setTabAccount(sess, btn.dataset.acct);
+            sess.term?.focus();
+        });
+        sess.containerEl.appendChild(el);
+        sess.acctToggleEl = el;
+    }
+    const show = !sess.running && !sess.starting && ideAccounts.length > 0;
+    el.style.display = show ? "" : "none";
+    if (!show) return;
+    const chosen = validAccount(sess.nextAccount);
+    const names = ["Default", ...ideAccounts.map(a => a.name)];
+    el.innerHTML = '<span class="acct-toggle-label">Bill this session to</span>' +
+        names.map(n => `<button type="button" data-acct="${escapeHtml(n)}" class="${n === chosen ? "active" : ""}"` +
+            ` title="${n === "Default" ? "Your normal Claude Code login (gregg@temarkinternational.com, TEMARK Team plan)" : "Uses this account's API key - billed to that API organization"}">` +
+            `${escapeHtml(accountDisplayName(n))}</button>`).join("");
+}
 
 function initAccountSelector() {
     const btn = document.getElementById("btn-account");
     const menu = document.getElementById("account-menu");
+    if (!btn || !menu) return;
 
     btn.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -1270,12 +1343,13 @@ function renderAccountMenu() {
     const menu = document.getElementById("account-menu");
     menu.innerHTML = "";
     const names = ["Default", ...ideAccounts.map(a => a.name)];
+    const current = tabAccount(activeSess());
     for (const name of names) {
         const item = document.createElement("div");
-        item.className = "account-option" + (name === currentAccount ? " selected" : "");
-        item.textContent = (name === currentAccount ? "\u2713 " : "") + name;
+        item.className = "account-option" + (name === current ? " selected" : "");
+        item.textContent = (name === current ? "\u2713 " : "") + accountDisplayName(name);
         item.addEventListener("click", () => {
-            setCurrentAccount(name);
+            setTabAccount(activeSess(), name);
             menu.style.display = "none";
         });
         menu.appendChild(item);
@@ -1288,24 +1362,15 @@ function renderAccountMenu() {
     }
 }
 
-function setCurrentAccount(name) {
-    currentAccount = name;
-    localStorage.setItem("claudeAccount", name);
-    updateAccountLabel();
-    if (anyRunning()) {
-        showToast(`Account "${name}" applies to the NEXT session you start - running tabs keep their account.`, 5000);
-    }
+function updateAccountLabel() {
+    const label = document.getElementById("account-label");
+    if (label) label.textContent = accountDisplayName(tabAccount(activeSess()));
 }
 
-function updateAccountLabel() {
-    // A stored selection may point at a deleted account - fall back
-    if (currentAccount !== "Default" && !ideAccounts.some(a => a.name === currentAccount)) {
-        currentAccount = "Default";
-        localStorage.setItem("claudeAccount", currentAccount);
-    }
-    document.getElementById("account-label").textContent = currentAccount;
-    // Hide the selector entirely when no extra accounts are configured
-    document.getElementById("account-wrapper").style.display = "";
+// Settings changed (accounts added/removed) - refresh every tab's toggle
+function refreshAccountToggles() {
+    for (const s of Object.values(termSessions)) renderAccountToggle(s);
+    updateAccountLabel();
 }
 
 // \u2500\u2500\u2500 Toast Notifications \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
@@ -2991,7 +3056,7 @@ async function saveSettings() {
                 Notification.requestPermission();
             }
             ideAccounts = accounts;
-            updateAccountLabel();
+            refreshAccountToggles();
             // Audible confirmation - saving is a user gesture, so this also
             // unlocks the audio engine for later background chimes
             if (notificationSound) playChime();
@@ -3032,7 +3097,7 @@ async function applyStartupSettings() {
         ideSettings.notifications_enabled = settings.notifications_enabled !== false;
         ideSettings.notification_sound = settings.notification_sound !== false;
         ideAccounts = settings.accounts || [];
-        updateAccountLabel();
+        refreshAccountToggles();
     } catch (e) {
         // Settings not saved yet, use defaults
     }
@@ -3070,7 +3135,8 @@ function addAccountRow(acct = {}) {
     };
     row.appendChild(mkInput("acct-name", "Name (e.g. Work)", acct.name, "text", "Shown in the account selector"));
     row.appendChild(mkInput("acct-dir", "Config dir (e.g. C:\\Users\\you\\.claude-work)", acct.config_dir, "text", "CLAUDE_CONFIG_DIR for this account - created on first use; run /login once inside a session"));
-    row.appendChild(mkInput("acct-key", "API key (optional)", acct.api_key, "password", "Sets ANTHROPIC_API_KEY for key-based accounts; leave empty for subscription logins"));
+    row.appendChild(mkInput("acct-key", "API key (optional)", acct.api_key, "password", "Sets ANTHROPIC_API_KEY for key-based accounts; leave empty for subscription logins. Prefer the key-file box: data/settings.json is copied to the GitHub backup repo"));
+    row.appendChild(mkInput("acct-keyfile", "API key file (optional)", acct.api_key_file, "text", "Path to a text file holding the API key, read when a session starts. Keeps the key out of settings.json (and the backup repo)"));
     const remove = document.createElement("button");
     remove.className = "account-row-remove";
     remove.textContent = "×";
@@ -3089,6 +3155,7 @@ function collectAccountsFromEditor() {
             name,
             config_dir: row.querySelector(".acct-dir").value.trim(),
             api_key: row.querySelector(".acct-key").value.trim(),
+            api_key_file: row.querySelector(".acct-keyfile")?.value.trim() || "",
         });
     });
     return accounts;
