@@ -20,7 +20,7 @@
     <!-- Socket.IO -->
     <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.7.4/dist/socket.io.min.js"></script>
 
-    <link rel="stylesheet" href="/static/css/style.css?v=20261031-1">
+    <link rel="stylesheet" href="/static/css/style.css?v=20261031-3">
 </head>
 <body>
     <!-- ─── Title Bar ──────────────────────────────────────────── -->
@@ -435,13 +435,24 @@
                     <input type="checkbox" id="settings-notification-sound" checked> Notification sound
                 </label>
                 <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border);">
-                    <div style="display:flex;align-items:center;">
-                        <label style="margin:0;">Anthropic Accounts</label>
-                        <span style="flex:1"></span>
-                        <button id="btn-add-account" class="toolbar-btn" title="Add another Claude Code account (each gets its own config directory)">+ Add</button>
+                    <label style="margin:0;">Billing accounts</label>
+                    <div style="font-size:11px;color:var(--text-muted);margin:4px 0 8px;">Every new terminal tab bills to the <b>primary</b> account. Once a secondary API key is saved, each idle tab shows a toggle to switch to it before the session starts. Leave the primary key empty to use your normal Claude Code login (claude.ai subscription). Keys are stored in <code>~/.claude-ide/keys</code>, never in settings.json, and are not shown again after saving.</div>
+                    <div class="billing-slot" data-slot="primary">
+                        <div class="billing-slot-title">Primary <span class="billing-slot-status"></span></div>
+                        <input type="text" class="modal-input billing-label" placeholder="Name shown on the toggle (e.g. Company plan)" maxlength="40">
+                        <div class="billing-key-row">
+                            <input type="password" class="modal-input billing-key" autocomplete="off" placeholder="API key (optional)">
+                            <button type="button" class="toolbar-btn billing-clear" title="Remove the saved key">Remove key</button>
+                        </div>
                     </div>
-                    <div style="font-size:11px;color:var(--text-muted);margin:4px 0 6px;">Each account uses its own config directory (CLAUDE_CONFIG_DIR). Select it in the terminal status bar, start a session, and run /login once to authenticate. API key is optional (for key-based accounts).</div>
-                    <div id="settings-accounts"></div>
+                    <div class="billing-slot" data-slot="secondary">
+                        <div class="billing-slot-title">Secondary <span class="billing-slot-status"></span></div>
+                        <input type="text" class="modal-input billing-label" placeholder="Name shown on the toggle (e.g. Personal API)" maxlength="40">
+                        <div class="billing-key-row">
+                            <input type="password" class="modal-input billing-key" autocomplete="off" placeholder="API key (enables the toggle)">
+                            <button type="button" class="toolbar-btn billing-clear" title="Remove the saved key">Remove key</button>
+                        </div>
+                    </div>
                 </div>
                 <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border);">
                     <div style="display:flex;align-items:center;gap:8px;">
@@ -571,6 +582,6 @@
     <div id="context-menu" style="display:none;position:fixed;z-index:2000;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,0.5);min-width:160px;padding:4px 0;">
     </div>
 
-    <script src="/static/js/app.js?v=20261031-1"></script>
+    <script src="/static/js/app.js?v=20261031-3"></script>
 </body>
 </html>

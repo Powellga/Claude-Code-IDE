@@ -30,8 +30,11 @@ let ideSettings = { notifications_enabled: true, notification_sound: true };
 // toggle on each idle terminal screen, or the status-bar selector, which
 // acts on the active tab). Every new tab starts on "Default" - the normal
 // ~/.claude login, i.e. the TEMARK Team plan.
+// Billing slots from settings (keys never reach the browser):
+// {primary|secondary: {label, has_key, key_hint}}. "Default" = primary,
+// "Secondary" = secondary. ideAccounts = legacy settings.json accounts.
+let ideBilling = { primary: {}, secondary: {} };
 let ideAccounts = [];
-const DEFAULT_ACCOUNT_LABEL = "TEMARK Team plan";
 
 function activeSess() {
     return termSessions[activeTermId] || null;
@@ -395,7 +398,7 @@ function updateSessionTabEl(sess) {
         name = "new tab";
     }
     if (sess.account && sess.account !== "Default") {
-        name += ` 👤${sess.account}`;
+        name += ` 👤${accountDisplayName(sess.account)}`;
     }
     sess.tabEl.querySelector(".session-tab-label").textContent = name;
     const sessName = sess.sessionLabel ||
@@ -404,7 +407,7 @@ function updateSessionTabEl(sess) {
         (sessName ? `${sessName}\n` : "") +
         `Project: ${projName}` +
         (sess.running ? " (running)" : "") +
-        (sess.account && sess.account !== "Default" ? `\nAccount: ${sess.account}` : "") +
+        (sess.account && sess.account !== "Default" ? `\nAccount: ${accountDisplayName(sess.account)}` : "") +
         (sess.claudeSessionId ? `\n${sess.claudeSessionId}` : "");
     sess.tabEl.querySelector(".session-tab-dot").className =
         "session-tab-dot " + (sess.needsAttention ? "attention" : sess.running ? "running" : "idle");
@@ -1264,13 +1267,31 @@ function setPermissionMode(mode, opts = {}) {
 // the account it spawned with, and resumes always use the session's
 // original account (its transcript lives in that account's config dir).
 
-function accountDisplayName(name) {
-    return (!name || name === "Default") ? DEFAULT_ACCOUNT_LABEL : name;
+// Accounts a tab can bill to: the primary slot ("Default"), the secondary
+// slot once it has a key, then any legacy settings.json accounts.
+function availableAccounts() {
+    return ["Default",
+        ...(ideBilling.secondary?.has_key ? ["Secondary"] : []),
+        ...ideAccounts.map(a => a.name)];
 }
 
-// A tab may point at an account deleted in Settings - fall back to Default
+function accountDisplayName(name) {
+    if (!name || name === "Default") return ideBilling.primary?.label || "Primary";
+    if (name === "Secondary") return ideBilling.secondary?.label || "Secondary";
+    return name;
+}
+
+function accountTooltip(name) {
+    const slot = (!name || name === "Default") ? ideBilling.primary
+        : name === "Secondary" ? ideBilling.secondary : null;
+    if (!slot) return "Legacy account from settings.json";
+    return slot.has_key ? `API key ending ${slot.key_hint} (billed to that key's API organization)`
+        : "Your normal Claude Code login (claude.ai subscription)";
+}
+
+// A tab may point at an account removed in Settings - fall back to Default
 function validAccount(name) {
-    return (name && name !== "Default" && ideAccounts.some(a => a.name === name)) ? name : "Default";
+    return availableAccounts().includes(name) ? name : "Default";
 }
 
 // What the active tab is (or will be) billed to
@@ -1308,15 +1329,14 @@ function renderAccountToggle(sess) {
         sess.containerEl.appendChild(el);
         sess.acctToggleEl = el;
     }
-    const show = !sess.running && !sess.starting && ideAccounts.length > 0;
+    const names = availableAccounts();
+    const show = !sess.running && !sess.starting && names.length > 1;
     el.style.display = show ? "" : "none";
     if (!show) return;
     const chosen = validAccount(sess.nextAccount);
-    const names = ["Default", ...ideAccounts.map(a => a.name)];
     el.innerHTML = '<span class="acct-toggle-label">Bill this session to</span>' +
         names.map(n => `<button type="button" data-acct="${escapeHtml(n)}" class="${n === chosen ? "active" : ""}"` +
-            ` title="${n === "Default" ? "Your normal Claude Code login (gregg@temarkinternational.com, TEMARK Team plan)" : "Uses this account's API key - billed to that API organization"}">` +
-            `${escapeHtml(accountDisplayName(n))}</button>`).join("");
+            ` title="${escapeHtml(accountTooltip(n))}">${escapeHtml(accountDisplayName(n))}</button>`).join("");
 }
 
 function initAccountSelector() {
@@ -1342,7 +1362,7 @@ function initAccountSelector() {
 function renderAccountMenu() {
     const menu = document.getElementById("account-menu");
     menu.innerHTML = "";
-    const names = ["Default", ...ideAccounts.map(a => a.name)];
+    const names = availableAccounts();
     const current = tabAccount(activeSess());
     for (const name of names) {
         const item = document.createElement("div");
@@ -1354,10 +1374,10 @@ function renderAccountMenu() {
         });
         menu.appendChild(item);
     }
-    if (ideAccounts.length === 0) {
+    if (names.length < 2) {
         const hint = document.createElement("div");
         hint.className = "account-option-hint";
-        hint.textContent = "Add accounts in Settings (\u2699\ufe0f)";
+        hint.textContent = "Add a secondary API key in Settings (\u2699\ufe0f)";
         menu.appendChild(hint);
     }
 }
@@ -1599,7 +1619,13 @@ function initUI() {
 
     // Anthropic account selector + settings editor
     initAccountSelector();
-    document.getElementById("btn-add-account")?.addEventListener("click", () => addAccountRow());
+    document.querySelectorAll(".billing-slot .billing-clear").forEach(btn =>
+        btn.addEventListener("click", () => {
+            const slotEl = btn.closest(".billing-slot");
+            slotEl.dataset.clear = "1";
+            slotEl.querySelector(".billing-key").value = "";
+            slotEl.querySelector(".billing-slot-status").textContent = "key will be removed when you save";
+        }));
 
     // In-app guide (renders the IDE's own README)
     document.getElementById("btn-guide")?.addEventListener("click", openGuide);
@@ -3009,7 +3035,7 @@ async function openSettings() {
         document.getElementById("settings-font-size").value = settings.font_size || 14;
         document.getElementById("settings-notifications").checked = settings.notifications_enabled !== false;
         document.getElementById("settings-notification-sound").checked = settings.notification_sound !== false;
-        renderAccountsEditor(settings.accounts || []);
+        renderBillingEditor(settings.billing || {});
 
         const sel = document.getElementById("settings-default-project");
         sel.innerHTML = '<option value="">None</option>' +
@@ -3029,7 +3055,7 @@ async function saveSettings() {
     const fontSize = parseInt(document.getElementById("settings-font-size").value) || 14;
     const notificationsEnabled = document.getElementById("settings-notifications").checked;
     const notificationSound = document.getElementById("settings-notification-sound").checked;
-    const accounts = collectAccountsFromEditor();
+    const billing = collectBillingFromEditor();
 
     try {
         const resp = await fetch("/api/settings", {
@@ -3041,10 +3067,11 @@ async function saveSettings() {
                 font_size: fontSize,
                 notifications_enabled: notificationsEnabled,
                 notification_sound: notificationSound,
-                accounts: accounts,
+                billing: billing,
             }),
         });
         if (resp.ok) {
+            const saved = await resp.json();
             for (const sess of Object.values(termSessions)) {
                 sess.term.options.fontSize = fontSize;
                 try { sess.fitAddon.fit(); } catch (err) { /* hidden tab */ }
@@ -3055,7 +3082,8 @@ async function saveSettings() {
             if (notificationsEnabled && "Notification" in window && Notification.permission === "default") {
                 Notification.requestPermission();
             }
-            ideAccounts = accounts;
+            ideBilling = saved.billing || ideBilling;
+            ideAccounts = saved.accounts || [];
             refreshAccountToggles();
             // Audible confirmation - saving is a user gesture, so this also
             // unlocks the audio engine for later background chimes
@@ -3096,6 +3124,7 @@ async function applyStartupSettings() {
 
         ideSettings.notifications_enabled = settings.notifications_enabled !== false;
         ideSettings.notification_sound = settings.notification_sound !== false;
+        ideBilling = settings.billing || ideBilling;
         ideAccounts = settings.accounts || [];
         refreshAccountToggles();
     } catch (e) {
@@ -3103,62 +3132,35 @@ async function applyStartupSettings() {
     }
 }
 
-// ─── Accounts editor (Settings modal) ─────────────────────────────────────
+// ─── Billing accounts editor (Settings modal) ─────────────────────────────
+//
+// Two fixed slots. The key box is always blank on open (the server never
+// returns keys); typing a key replaces the saved one, "Remove key" clears it.
 
-function renderAccountsEditor(accounts) {
-    const container = document.getElementById("settings-accounts");
-    container.innerHTML = "";
-    for (const acct of accounts) addAccountRow(acct);
-    if (!accounts.length) {
-        const hint = document.createElement("div");
-        hint.className = "accounts-empty-hint";
-        hint.textContent = "No extra accounts - sessions use your normal Claude Code identity.";
-        container.appendChild(hint);
-    }
-}
-
-function addAccountRow(acct = {}) {
-    const container = document.getElementById("settings-accounts");
-    const emptyHint = container.querySelector(".accounts-empty-hint");
-    if (emptyHint) emptyHint.remove();
-
-    const row = document.createElement("div");
-    row.className = "account-row";
-    const mkInput = (cls, placeholder, value, type = "text", title = "") => {
-        const inp = document.createElement("input");
-        inp.type = type;
-        inp.className = cls;
-        inp.placeholder = placeholder;
-        inp.value = value || "";
-        inp.title = title;
-        return inp;
-    };
-    row.appendChild(mkInput("acct-name", "Name (e.g. Work)", acct.name, "text", "Shown in the account selector"));
-    row.appendChild(mkInput("acct-dir", "Config dir (e.g. C:\\Users\\you\\.claude-work)", acct.config_dir, "text", "CLAUDE_CONFIG_DIR for this account - created on first use; run /login once inside a session"));
-    row.appendChild(mkInput("acct-key", "API key (optional)", acct.api_key, "password", "Sets ANTHROPIC_API_KEY for key-based accounts; leave empty for subscription logins. Prefer the key-file box: data/settings.json is copied to the GitHub backup repo"));
-    row.appendChild(mkInput("acct-keyfile", "API key file (optional)", acct.api_key_file, "text", "Path to a text file holding the API key, read when a session starts. Keeps the key out of settings.json (and the backup repo)"));
-    const remove = document.createElement("button");
-    remove.className = "account-row-remove";
-    remove.textContent = "×";
-    remove.title = "Remove this account";
-    remove.addEventListener("click", () => row.remove());
-    row.appendChild(remove);
-    container.appendChild(row);
-}
-
-function collectAccountsFromEditor() {
-    const accounts = [];
-    document.querySelectorAll("#settings-accounts .account-row").forEach(row => {
-        const name = row.querySelector(".acct-name").value.trim();
-        if (!name) return;
-        accounts.push({
-            name,
-            config_dir: row.querySelector(".acct-dir").value.trim(),
-            api_key: row.querySelector(".acct-key").value.trim(),
-            api_key_file: row.querySelector(".acct-keyfile")?.value.trim() || "",
-        });
+function renderBillingEditor(billing) {
+    document.querySelectorAll(".billing-slot").forEach(slotEl => {
+        const slot = slotEl.dataset.slot;
+        const cfg = billing[slot] || {};
+        delete slotEl.dataset.clear;
+        slotEl.querySelector(".billing-label").value = cfg.label || "";
+        slotEl.querySelector(".billing-key").value = "";
+        slotEl.querySelector(".billing-clear").style.display = cfg.has_key ? "" : "none";
+        slotEl.querySelector(".billing-slot-status").textContent = cfg.has_key
+            ? `API key saved (ends ${cfg.key_hint}). Type a new key to replace it.`
+            : (slot === "primary" ? "no key: uses your Claude Code login" : "no key: toggle hidden");
     });
-    return accounts;
+}
+
+function collectBillingFromEditor() {
+    const billing = {};
+    document.querySelectorAll(".billing-slot").forEach(slotEl => {
+        billing[slotEl.dataset.slot] = {
+            label: slotEl.querySelector(".billing-label").value.trim(),
+            api_key: slotEl.querySelector(".billing-key").value.trim(),
+            clear_key: slotEl.dataset.clear === "1",
+        };
+    });
+    return billing;
 }
 
 // ─── In-App Guide ───────────────────────────────────────────────────────
@@ -3274,7 +3276,7 @@ function renderUsage(data) {
     for (const a of (data.accounts || [])) {
         const tr = document.createElement("tr");
         for (const c of [
-            a.account,
+            accountDisplayName(a.account),
             a.sessions.toLocaleString(),
             fmtCost(a.period_cost || 0),
             fmtCost(a.prev_period_cost || 0),

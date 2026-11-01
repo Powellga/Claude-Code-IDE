@@ -14,6 +14,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import time
 import uuid
@@ -100,20 +101,81 @@ active_terminals = {}
 
 # ─── Terminal Management ────────────────────────────────────────────────────
 
+# ── Billing slots ──
+#
+# Two generic slots, edited in Settings > Billing accounts:
+#   primary   (account name "Default")   - every new tab starts here. No key
+#             = the user's normal Claude Code login (claude.ai subscription);
+#             a key = ANTHROPIC_API_KEY.
+#   secondary (account name "Secondary") - offered by the per-tab toggle only
+#             once it has an API key.
+# settings.json keeps only {label, api_key_file, key_hint} per slot. Keys
+# pasted in Settings are written to KEYS_DIR (outside data/, which may be
+# mirrored to a backup repo) and never returned by the API.
+PRIMARY_ACCOUNT = "Default"
+SECONDARY_ACCOUNT = "Secondary"
+BILLING_SLOTS = {PRIMARY_ACCOUNT: "primary", SECONDARY_ACCOUNT: "secondary"}
+KEYS_DIR = Path.home() / ".claude-ide" / "keys"
+
+
+def _read_key_file(path):
+    if not path:
+        return ""
+    try:
+        return Path(path).expanduser().read_text(encoding="utf-8").strip()
+    except OSError as e:
+        print(f"[IDE] Cannot read API key file {path}: {e}")
+        return ""
+
+
+def _slot_key(account_name, settings=None):
+    """API key for a billing slot ("" = none / the Claude login)."""
+    slot = BILLING_SLOTS.get(account_name or PRIMARY_ACCOUNT)
+    if not slot:
+        return ""
+    cfg = (settings or load_settings()).get("billing", {}).get(slot, {})
+    return _read_key_file(cfg.get("api_key_file"))
+
+
+def _store_slot_key(slot, key):
+    """Write a pasted key to KEYS_DIR/<slot>.key, readable only by this user."""
+    KEYS_DIR.mkdir(parents=True, exist_ok=True)
+    path = KEYS_DIR / f"{slot}.key"
+    path.write_text(key, encoding="utf-8")
+    if os.name == "nt":
+        user = os.environ.get("USERNAME", "")
+        if user:
+            subprocess.run(["icacls", str(path), "/inheritance:r", "/grant:r",
+                            f"{user}:F", "SYSTEM:F", "Administrators:F"],
+                           capture_output=True)
+    else:
+        os.chmod(path, 0o600)
+    return str(path)
+
+
+def _account_available(account_name):
+    """False when the secondary slot is chosen but has no key - spawning
+    then would silently bill the primary login instead."""
+    if account_name == SECONDARY_ACCOUNT:
+        return bool(_slot_key(SECONDARY_ACCOUNT))
+    return True
+
+
 def _account_env(account_name):
     """Resolve an account name to the env overrides that select it.
 
-    Accounts live in settings.json: [{name, config_dir, api_key,
-    api_key_file}]. A config dir makes Claude Code use that directory's
-    credentials/settings (each account = its own CLAUDE_CONFIG_DIR, logged
-    in separately via /login); an api_key sets ANTHROPIC_API_KEY directly.
-    api_key_file is the same but read from a file at spawn time - preferred,
-    because data/settings.json is mirrored to the GitHub backup repo and a
-    key pasted into it would be copied there. "Default"/empty = no
-    overrides, i.e. the user's normal ~/.claude identity.
+    "Default" / "Secondary" are the two billing slots above. Other names are
+    legacy entries in settings.json "accounts": [{name, config_dir, api_key,
+    api_key_file}] - a config dir makes Claude Code use that directory's
+    credentials (CLAUDE_CONFIG_DIR, logged in separately via /login); a key
+    sets ANTHROPIC_API_KEY. Kept so sessions created under them still resume.
     """
-    if not account_name or account_name == "Default":
-        return {}
+    if not account_name or account_name in BILLING_SLOTS:
+        key = _slot_key(account_name or PRIMARY_ACCOUNT)
+        if not key:
+            return {}
+        _ensure_api_key_approved(key)
+        return {"ANTHROPIC_API_KEY": key}
     for acct in load_settings().get("accounts", []):
         if acct.get("name") == account_name:
             env = {}
@@ -833,9 +895,28 @@ def index():
 
 # ── Settings API ──
 
+def _public_settings(settings):
+    """Settings as sent to the browser: billing slots carry has_key/key_hint
+    but never the key or its file path, and legacy account keys are masked."""
+    out = dict(settings)
+    billing = {}
+    for slot in ("primary", "secondary"):
+        cfg = settings.get("billing", {}).get(slot, {})
+        has_key = bool(_read_key_file(cfg.get("api_key_file")))
+        billing[slot] = {
+            "label": cfg.get("label", ""),
+            "has_key": has_key,
+            "key_hint": cfg.get("key_hint", "") if has_key else "",
+        }
+    out["billing"] = billing
+    out["accounts"] = [{**a, "api_key": "", "has_key": bool(a.get("api_key") or a.get("api_key_file"))}
+                       for a in settings.get("accounts", [])]
+    return out
+
+
 @app.route("/api/settings", methods=["GET"])
 def api_get_settings():
-    return jsonify(load_settings())
+    return jsonify(_public_settings(load_settings()))
 
 
 @app.route("/api/settings", methods=["PUT"])
@@ -854,24 +935,49 @@ def api_put_settings():
         settings["notifications_enabled"] = bool(data["notifications_enabled"])
     if "notification_sound" in data:
         settings["notification_sound"] = bool(data["notification_sound"])
+    if "billing" in data:
+        # {primary|secondary: {label, api_key?, clear_key?}} - an api_key is
+        # written to KEYS_DIR and only its path + last-4 hint are kept here;
+        # an empty api_key means "keep the saved key".
+        billing = settings.setdefault("billing", {})
+        for slot in ("primary", "secondary"):
+            inc = (data["billing"] or {}).get(slot)
+            if not isinstance(inc, dict):
+                continue
+            cfg = billing.setdefault(slot, {})
+            if "label" in inc:
+                cfg["label"] = (inc.get("label") or "").strip()[:40]
+            new_key = (inc.get("api_key") or "").strip()
+            if inc.get("clear_key"):
+                own = KEYS_DIR / f"{slot}.key"
+                if cfg.get("api_key_file") and Path(cfg["api_key_file"]) == own and own.exists():
+                    own.unlink()
+                cfg.pop("api_key_file", None)
+                cfg.pop("key_hint", None)
+            elif new_key:
+                cfg["api_key_file"] = _store_slot_key(slot, new_key)
+                cfg["key_hint"] = new_key[-4:]
     if "accounts" in data:
-        # [{name, config_dir, api_key, api_key_file}] - name required, the rest optional
+        # Legacy [{name, config_dir, api_key, api_key_file}]. The browser only
+        # ever sees masked keys, so an empty api_key keeps the stored one.
+        old = {a.get("name"): a for a in settings.get("accounts", [])}
         accounts = []
         for acct in data["accounts"] or []:
             name = (acct.get("name") or "").strip()
-            if not name or name == "Default":
+            if not name or name in BILLING_SLOTS:
                 continue
+            prev = old.get(name, {})
             accounts.append({
                 "name": name,
                 "config_dir": (acct.get("config_dir") or "").strip(),
-                "api_key": (acct.get("api_key") or "").strip(),
-                "api_key_file": (acct.get("api_key_file") or "").strip(),
+                "api_key": (acct.get("api_key") or "").strip() or prev.get("api_key", ""),
+                "api_key_file": (acct.get("api_key_file") or "").strip() or prev.get("api_key_file", ""),
             })
         settings["accounts"] = accounts
     if "billing_cycle_day" in data:
         settings["billing_cycle_day"] = max(1, min(28, int(data["billing_cycle_day"])))
     save_settings(settings)
-    return jsonify(settings)
+    return jsonify(_public_settings(settings))
 
 
 # ── Usage API ──
@@ -2878,6 +2984,10 @@ def on_start_terminal(data):
     claude_session_id = str(uuid.uuid4())
     cmd = f"{CLAUDE_CMD} --session-id {claude_session_id}{_permission_mode_flags(permission_mode)}"
 
+    if not _account_available(data.get("account")):
+        emit("terminal_error", {"terminal_id": term_id,
+                                "message": "The secondary billing account has no API key. Add one in Settings > Billing accounts."})
+        return
     spawned = _spawn_terminal(sid, project_path, cmd=cmd, claude_session_id=claude_session_id,
                               term_id=term_id, account=data.get("account"))
     if spawned:
@@ -2936,6 +3046,10 @@ def on_resume_session(data):
     # A resumed session must run under the account that created it - the
     # conversation transcript lives in that account's config dir.
     cmd = f"{CLAUDE_CMD} --resume {claude_session_id}{_permission_mode_flags(permission_mode)}"
+    if not _account_available(data.get("account")):
+        emit("terminal_error", {"terminal_id": term_id,
+                                "message": "This session was billed to the secondary account, which has no API key now. Add one in Settings > Billing accounts."})
+        return
     spawned = _spawn_terminal(sid, project_path, cmd=cmd, claude_session_id=claude_session_id,
                               term_id=term_id, account=data.get("account"))
     if spawned:

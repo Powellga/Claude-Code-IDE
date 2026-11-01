@@ -1642,6 +1642,23 @@ html, body {
     padding: 4px 0;
 }
 
+/* Settings > Billing accounts */
+.billing-slot {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin-bottom: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.billing-slot-title { font-size: var(--font-size-sm); font-weight: 600; color: var(--text-primary); }
+.billing-slot-status { font-weight: normal; font-size: 11px; color: var(--text-muted); margin-left: 6px; }
+.billing-key-row { display: flex; gap: 6px; }
+.billing-key-row .billing-key { flex: 1; }
+.billing-slot input { width: 100%; box-sizing: border-box; }
+.billing-key-row .billing-key { width: auto; }
+
 /* Per-tab account toggle, overlaid top-right on an idle terminal screen */
 .acct-toggle {
     position: absolute;
