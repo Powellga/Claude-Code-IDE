@@ -1108,6 +1108,14 @@ async function uploadPastedImage(sess, blob, mimeType) {
 }
 
 // Send a prompt line to the active tab's running session, if any
+// Project whose working directory receives an uploaded file, screenshot or
+// imported conversation: the ACTIVE TAB's project, because the follow-up
+// prompt goes to that tab's Claude session. The sidebar selection only
+// applies when the tab has no project.
+function dropTargetProject() {
+    return (activeSess() && activeSess().project) || activeProject;
+}
+
 function sendPromptToActiveSession(prompt) {
     const sess = activeSess();
     if (sess && sess.running && socket) {
@@ -3404,14 +3412,15 @@ async function uploadFile() {
     // Reset input so the same file can be re-uploaded
     input.value = "";
 
-    if (!activeProject) {
+    const targetProject = dropTargetProject();
+    if (!targetProject) {
         alert("Select a project first so the file has a destination directory.");
         return;
     }
 
     const formData = new FormData();
     formData.append("file", file);
-    formData.append("project", activeProject);
+    formData.append("project", targetProject);
 
     try {
         const resp = await fetch("/api/upload", {
@@ -3452,7 +3461,7 @@ async function takeScreenshot() {
         const resp = await fetch("/api/screenshot", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ project: activeProject }),
+            body: JSON.stringify({ project: dropTargetProject() }),
         });
         const data = await resp.json();
 
@@ -3723,7 +3732,7 @@ async function importConversation() {
         const resp = await fetch("/api/import-conversation", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ project: activeProject, text, label }),
+            body: JSON.stringify({ project: dropTargetProject(), text, label }),
         });
         const data = await resp.json();
 

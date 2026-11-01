@@ -139,6 +139,8 @@ Previously, any disconnect killed every running session — an accidental F5 cou
 
 Ctrl+V with an image on the clipboard (say, a screenshot you just took) saves it into the tab's project directory as `pasted_image_<timestamp>.png` and prompts Claude to analyze it. Text pastes behave exactly as before.
 
+Uploaded files, screenshots and imported conversations follow the same rule: they land in the **active tab's** project directory (the sidebar selection is used only when the tab has no project), because the follow-up prompt goes to that tab's Claude session.
+
 ### Phase 26 — Usage dashboard
 
 A 📊 Usage tab reads token consumption straight from Claude Code's own transcripts, matched to IDE sessions: summary cards for the last 7 days, 30 days, and all time; a 30-day output-token bar chart; and a per-project table. Streamed responses repeat usage per message id, so entries are deduplicated before summing, and parsed totals are cached by file mtime so only new activity is ever re-read.
